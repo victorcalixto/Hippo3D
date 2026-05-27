@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="64"
+   height="64"
+   viewBox="0 0 64 64"
+   version="1.1"
+   id="svg1"
+   sodipodi:docname="arc.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs1" />
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1" />
+  <path
+     style="baseline-shift:baseline;display:inline;overflow:visible;vector-effect:none;fill:#bd93f9;stroke-linecap:round;enable-background:accumulate;stop-color:#000000;stop-opacity:1;opacity:1"
+     d="M 36.615234,13.685547 C 21.774703,14.462025 8.6777024,27.753234 11.029297,44.419922 a 3,3 0 0 0 3.390625,2.550781 3,3 0 0 0 2.550781,-3.390625 c -2.488915,-17.639936 16.174257,-30.082051 31.5,-21 a 3,3 0 0 0 4.109375,-1.050781 3,3 0 0 0 -1.050781,-4.109375 C 46.702572,14.559599 41.562078,13.426721 36.615234,13.685547 Z"
+     id="path1" />
+</svg>

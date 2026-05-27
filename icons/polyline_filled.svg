@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="64"
+   height="64"
+   viewBox="0 0 64 64"
+   version="1.1"
+   id="svg1"
+   sodipodi:docname="polyline.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs1" />
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1" />
+  <path
+     style="baseline-shift:baseline;display:inline;overflow:visible;vector-effect:none;fill:#bd93f9;stroke-linecap:round;stroke-linejoin:round;enable-background:accumulate;stop-color:#000000;stop-opacity:1;opacity:1"
+     d="M 55.412109,9.0585938 A 3,3 0 0 0 53.503906,10.335938 L 39.533203,31.291016 26.121094,17.878906 a 3.0003,3.0003 0 0 0 -4.726563,0.632813 l -15.9999998,28 a 3,3 0 0 0 1.1171875,4.09375 3,3 0 0 0 4.0937503,-1.117188 L 24.65625,24.898437 37.878906,38.121094 a 3.0003,3.0003 0 0 0 4.617188,-0.457032 l 16,-23.999999 A 3,3 0 0 0 57.664062,9.5039063 3,3 0 0 0 55.412109,9.0585938 Z"
+     id="polyline1" />
+</svg>

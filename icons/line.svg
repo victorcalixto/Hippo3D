@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+
+  <!-- Main line -->
+  <path d="M 12 52 L 52 12" fill="none" stroke="#BD93F9" stroke-width="6" stroke-linecap="butt"></path>
+
+</svg>

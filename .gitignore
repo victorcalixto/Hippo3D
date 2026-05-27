@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Blender
+*.blend1
+*.blend2
+
+# Build / Distribution
+build/
+dist/
+*.egg-info/
+
+# Native binaries
+*.so
+*.dll
+*.dylib
+*.a
+*.lib
+*.o
+*.obj
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+
+# Temporary
+tmp/
+temp/
+
+# Blender extension cache
+extensions/.cache/
+
+# Ignore packaged zips
+*.zip
