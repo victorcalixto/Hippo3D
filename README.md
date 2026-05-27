@@ -25,7 +25,7 @@ Hippo3D combines:
 - CAD-style interaction
 - Blender viewport integration
 - NURBS workflows
-- Surface modeling
+- Surface-Like modeling
 - Construction planes
 - Command-line workflows
 - Open-source extensibility
@@ -47,7 +47,7 @@ Hippo3D combines:
 - XLine
 - NURBS Curves
 
-## Surface Tools
+## Surface-Like Tools
 
 - Loft
 - Revolve
@@ -81,7 +81,7 @@ Hippo3D includes a CAD-style command system directly inside Blender.
 
 Example workflow:
 
-- `/` → Open command mode
+- `Ctrl + /` → Open command mode
 - Type commands directly in the viewport
 - Press `Enter` to execute
 
@@ -160,11 +160,8 @@ The project embraces openness, extensibility, experimentation, and interoperabil
 # Roadmap
 
 - [ ] Improved NURBS workflows
-- [ ] Constraint-based modeling
 - [ ] Better snapping system
 - [ ] SVG/DXF interoperability
-- [ ] Parametric history system
-- [ ] Native GPU overlays
 - [ ] BIM interoperability
 - [ ] Geometry kernel experiments
 - [ ] Computational design workflows
