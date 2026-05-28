@@ -89,8 +89,9 @@ Example workflow:
 
 # Screenshots
 
-<p align="center"> <img src="https://i.imgur.com/uGCxJ4u.gif" width="100%"> </p>
-<p align="center"> <img src="https://i.imgur.com/HX2DFto.gif" width="100%"> </p>
+<p align="center"> <img src="https://i.imgur.com/s8P34oc.gif" width="100%"> </p>
+<p align="center"> <img src="https://i.imgur.com/APRiS8K.gif" width="100%"> </p>
+<p align="center"> <img src="https://i.imgur.com/4t1CtR3.gif" width="100%"> </p>
 ---
 
 # Installation
