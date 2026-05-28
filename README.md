@@ -90,12 +90,7 @@ Example workflow:
 # Screenshots
 
 <p align="center"> <img src="https://i.imgur.com/uGCxJ4u.gif" width="100%"> </p>
-
-<p align="center"> <img src="https://i.imgur.com/J3Hv3At.gif" width="100%"> </p>
-
-<p align="center"> <img src="https://i.imgur.com/PPRYpAR.gif" width="100%"> </p>
-
-<p align="center"> <img src="https://i.imgur.com/zlHaF9T.gif" width="100%"> </p>
+<p align="center"> <img src="https://i.imgur.com/HX2DFto.gif" width="100%"> </p>
 ---
 
 # Installation
