@@ -1,4 +1,4 @@
-# Hippo3D
+<img width="800" height="411" alt="image" src="https://github.com/user-attachments/assets/ca690883-c0dd-4c53-951c-1c7687a4e049" /># Hippo3D
 
 <p align="center">
   <img src="./icons/hippo3d_logo.png" width="320" alt="Hippo3D Logo">
