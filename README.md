@@ -90,25 +90,25 @@ Example workflow:
 # Screenshots
 
 <p align="center">
-  <img src="https://github-production-user-asset-6210df.s3.amazonaws.com/4661824/599141907-aa9de11c-813c-46e7-9a99-1dd40023b014.gif?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAVCODYLSA53PQK4ZA%2F20260528%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260528T012317Z&X-Amz-Expires=300&X-Amz-Signature=6ca021459dc93c2f9d7a27f81f7df0e266083e00cdd1f92e8f6a798f3622416e&X-Amz-SignedHeaders=host&response-content-type=image%2Fgif" width="700">
+  <img src="https://i.imgur.com/uGCxJ4u.gif" width="700">
 </p>
 
 <p align="center">
-  <img src="https://github-production-user-asset-6210df.s3.amazonaws.com/4661824/599143751-77dc066f-4574-4d66-a35a-f8761bab920e.gif?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAVCODYLSA53PQK4ZA%2F20260528%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260528T013034Z&X-Amz-Expires=300&X-Amz-Signature=4fa5902c7bf7bc14de4950fccc06ba478f73ebeff1cd8379ec5c97cc5c7de617&X-Amz-SignedHeaders=host&response-content-type=image%2Fgif" width="700">
+  <img src="https://i.imgur.com/J3Hv3At.gif" width="700">
 </p>
 
 <p align="center">
-  <img src="https://github-production-user-asset-6210df.s3.amazonaws.com/4661824/599143081-7826ce0c-5a38-4848-8825-23efa2aee23c.gif?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAVCODYLSA53PQK4ZA%2F20260528%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260528T012637Z&X-Amz-Expires=300&X-Amz-Signature=6def3c24580c2a3adc50dbbf1b0c8e1b5d74956d5887fae5200d4e34640c6641&X-Amz-SignedHeaders=host&response-content-type=image%2Fgif" width="700">
-</p>
-
-
-<p align="center">
-  <img src="https://github-production-user-asset-6210df.s3.amazonaws.com/4661824/599142474-eb8fb291-6a82-4d30-a406-b017c0371207.gif?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAVCODYLSA53PQK4ZA%2F20260528%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260528T012450Z&X-Amz-Expires=300&X-Amz-Signature=214b9ee7a55bbe663c6e526ce4eceb27954226cc923e38ab1eefd58a96a68ba3&X-Amz-SignedHeaders=host&response-content-type=image%2Fgif" width="700">
+  <img src="https://i.imgur.com/PPRYpAR.gif" width="700">
 </p>
 
 
 <p align="center">
-  <img src="https://github-production-user-asset-6210df.s3.amazonaws.com/4661824/599142317-5179bdce-04c9-4659-85f8-0234b07c0309.gif?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAVCODYLSA53PQK4ZA%2F20260528%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260528T012417Z&X-Amz-Expires=300&X-Amz-Signature=0734c1c3b2fee51655d7e1bc7f7c7719674aa604eb370f23e53cb4e8dc1ce725&X-Amz-SignedHeaders=host&response-content-type=image%2Fgif" width="700">
+  <img src="https://i.imgur.com/HX2DFto.gif" width="700">
+</p>
+
+
+<p align="center">
+  <img src="https://i.imgur.com/zlHaF9T.gif" width="700">
 </p>
 
 ---
