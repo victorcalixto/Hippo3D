@@ -2,9 +2,13 @@ schema_version = "1.0.0"
 
 id = "hippo3d"
 version = "0.1.0"
+
 name = "Hippo3D"
-tagline = "A free and open source Rhino-like CAD modelling plugin for Blender"
+
+tagline = "Free and open source Rhino-like CAD tools for Blender"
+
 maintainer = "Victor Calixto"
+
 type = "add-on"
 
 blender_version_min = "4.2.0"
@@ -13,4 +17,4 @@ license = [
   "SPDX:GPL-3.0-or-later"
 ]
 
-tags = ["3D View", "Modeling", "Mesh", "Curve"]
+tags = ["3D View", "Modeling", "Mesh"]
