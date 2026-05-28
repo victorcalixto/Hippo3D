@@ -2743,8 +2743,54 @@ class Hippo3D_OT_Command(Operator):
             context.workspace.status_text_set(command_label())
             return
 
-        if not state.command:
-            cmd = txt.lower()
+        point_commands = {
+            "line", "l",
+            "polyline", "pline", "pl",
+            "rectangle", "rect",
+            "circle", "c",
+            "nurbs", "nurbscurve", "curve", "crv",
+            "cplane3pt", "cplane_curve_perp", "cplane_rotate3pt", "cplane_axisrotate", "cplane_move",
+            "revolve_axis",
+            "arc",
+            "ellipse",
+            "polygon",
+            "xline",
+        }
+
+        def feed_inline_points(args_text):
+            """Feed one or more typed coordinates after a command name.
+
+            Examples:
+                line 0,0,0
+                line 0,0,0 10,0,0
+                polyline 0,0 10,0 @0,10
+                arc 0,0 5,5 10,0
+
+            Coordinates are space-separated. Each coordinate may be x,y or x,y,z.
+            Numeric distance mode remains available after a first point exists.
+            """
+            if not args_text:
+                return
+
+            tokens = args_text.replace(";", " ").split()
+            for token in tokens:
+                base = state.points[-1] if state.points else None
+                pt = parse_point(token, context, base)
+
+                if pt is None and state.points:
+                    distance_value = parse_distance_value(token)
+                    if distance_value is not None:
+                        pt = point_from_distance_in_mouse_direction(context, distance_value)
+
+                if pt is None:
+                    self.report({"WARNING"}, f"Could not parse point: {token}")
+                    break
+
+                self.add_point(context, pt)
+
+        def start_command_with_args(command_name, args_text=""):
+            cmd = command_name.lower().strip()
+
             if cmd in {"line", "l"}:
                 self.start_line(context)
             elif cmd in {"polyline", "pline", "pl"}:
@@ -2753,21 +2799,6 @@ class Hippo3D_OT_Command(Operator):
                 self.start_rectangle(context)
             elif cmd in {"circle", "c"}:
                 self.start_circle(context)
-            elif cmd.split() and cmd.split()[0] in {"nurbs", "nurbscurve", "curve", "crv"}:
-                degree = None
-                parts = cmd.split()
-                if len(parts) >= 2:
-                    try:
-                        if parts[1] in {"degree", "deg", "d"} and len(parts) >= 3:
-                            degree = int(parts[2])
-                        else:
-                            degree = int(parts[1])
-                    except Exception:
-                        degree = None
-                self.start_nurbs(context, degree)
-            elif cmd in {"ortho", "f8"}:
-                context.scene.cad_ortho = not context.scene.cad_ortho
-                self.report({"INFO"}, f"Ortho {'On' if context.scene.cad_ortho else 'Off'}")
             elif cmd in {"arc"}:
                 self.start_arc(context)
             elif cmd in {"ellipse", "ell"}:
@@ -2778,7 +2809,52 @@ class Hippo3D_OT_Command(Operator):
                 self.start_xline(context)
             elif cmd in {"revolveaxis", "revaxis", "setrevolveaxis", "setrevaxis"}:
                 self.start_revolve_axis(context)
-            elif cmd.startswith("cplane"):
+            elif cmd in {"nurbs", "nurbscurve", "curve", "crv"}:
+                self.start_nurbs(context)
+            else:
+                return False
+
+            feed_inline_points(args_text)
+            context.workspace.status_text_set(command_label())
+            return True
+
+        # ------------------------------------------------------------------
+        # No active command: allow both command-only and command-with-points.
+        # Examples:
+        #   line
+        #   line 0,0,0
+        #   line 0,0,0 10,0,0
+        # ------------------------------------------------------------------
+        if not state.command:
+            raw_parts = txt.split(maxsplit=1)
+            cmd = raw_parts[0].lower()
+            args_text = raw_parts[1] if len(raw_parts) > 1 else ""
+
+            if start_command_with_args(cmd, args_text):
+                return
+
+            # NURBS degree command still works as before.
+            if cmd in {"nurbs", "nurbscurve", "curve", "crv"}:
+                degree = None
+                parts = txt.lower().split()
+                if len(parts) >= 2:
+                    try:
+                        if parts[1] in {"degree", "deg", "d"} and len(parts) >= 3:
+                            degree = int(parts[2])
+                        else:
+                            degree = int(parts[1])
+                    except Exception:
+                        degree = None
+                self.start_nurbs(context, degree)
+                return
+
+            if cmd in {"ortho", "f8"}:
+                context.scene.cad_ortho = not context.scene.cad_ortho
+                self.report({"INFO"}, f"Ortho {'On' if context.scene.cad_ortho else 'Off'}")
+                context.workspace.status_text_set(command_label())
+                return
+
+            if txt.lower().startswith("cplane"):
                 handled, ok, msg, start_3pt_name = run_cplane_command(context, txt)
                 if start_3pt_name:
                     mode = "3PT"
@@ -2793,71 +2869,93 @@ class Hippo3D_OT_Command(Operator):
                     self.report({"INFO"}, msg)
                 else:
                     self.report({"WARNING"}, msg)
+                context.workspace.status_text_set(command_label())
+                return
+
+            ok, msg = run_simple_cad_command(context, txt.lower())
+            if ok is None:
+                self.report({"WARNING"}, f"Unknown command: {txt}")
+            elif ok:
+                self.report({"INFO"}, msg)
             else:
-                ok, msg = run_simple_cad_command(context, cmd)
-                if ok is None:
-                    self.report({"WARNING"}, f"Unknown command: {txt}")
-                elif ok:
-                    self.report({"INFO"}, msg)
-                else:
-                    self.report({"WARNING"}, msg)
+                self.report({"WARNING"}, msg)
+            context.workspace.status_text_set(command_label())
             return
 
-        if state.command in {"line", "l", "polyline", "pline", "pl", "rectangle", "rect", "circle", "c", "nurbs", "nurbscurve", "curve", "crv", "cplane3pt", "cplane_curve_perp", "cplane_rotate3pt", "cplane_axisrotate", "cplane_move", "revolve_axis", "arc", "ellipse", "polygon", "xline"}:
-            pt = parse_point(txt, context, state.points[-1] if state.points else None)
+        # ------------------------------------------------------------------
+        # Active point-picking command: parse typed points / relative points /
+        # distances for ALL point commands, not just polyline.
+        # ------------------------------------------------------------------
+        if state.command in point_commands:
+            base = state.points[-1] if state.points else None
+            pt = parse_point(txt, context, base)
 
             if pt is None and state.points:
                 distance_value = parse_distance_value(txt)
                 if distance_value is not None:
                     pt = point_from_distance_in_mouse_direction(context, distance_value)
 
-            if pt is None:
-                low = txt.lower()
-
-                if state.command in {"nurbs", "nurbscurve", "curve", "crv"}:
-                    parts = low.split()
-                    if len(parts) >= 2 and parts[0] in {"degree", "deg", "d"}:
-                        try:
-                            degree = max(1, min(int(parts[1]), 11))
-                            context.scene.cad_nurbs_degree = degree
-                            state.nurbs_degree = degree
-                            self.report({"INFO"}, f"NURBS degree set to {degree}.")
-                            context.workspace.status_text_set(command_label())
-                            return
-                        except Exception:
-                            self.report({"WARNING"}, "Use: degree 3")
-                            return
-                if low in {"line", "l"}:
-                    self.start_line(context)
-                elif low in {"polyline", "pline", "pl"}:
-                    self.start_polyline(context)
-                elif low in {"rectangle", "rect"}:
-                    self.start_rectangle(context)
-                elif low in {"circle", "c"}:
-                    self.start_circle(context)
-                elif low in {"nurbs", "nurbscurve", "curve", "crv"}:
-                    self.start_nurbs(context)
-                elif low in {"ortho", "f8"}:
-                    context.scene.cad_ortho = not context.scene.cad_ortho
-                    self.report({"INFO"}, f"Ortho {'On' if context.scene.cad_ortho else 'Off'}")
-                elif low.startswith("cplane"):
-                    handled, ok, msg, start_3pt_name = run_cplane_command(context, txt)
-                    if start_3pt_name:
-                        self.start_cplane_3pt(context, start_3pt_name)
-                    elif ok:
-                        self.report({"INFO"}, msg)
-                    else:
-                        self.report({"WARNING"}, msg)
-                else:
-                    ok, msg = run_simple_cad_command(context, low)
-                    if ok is None:
-                        self.report({"WARNING"}, "Type coordinates as x,y,z, click in the viewport, or press Esc to finish the command.")
-                    elif ok:
-                        self.report({"INFO"}, msg)
-                    else:
-                        self.report({"WARNING"}, msg)
+            if pt is not None:
+                self.add_point(context, pt)
+                context.workspace.status_text_set(command_label())
                 return
-            self.add_point(context, pt)
+
+            low = txt.lower()
+            raw_parts = low.split(maxsplit=1)
+            cmd = raw_parts[0] if raw_parts else ""
+            args_text = raw_parts[1] if len(raw_parts) > 1 else ""
+
+            if state.command in {"nurbs", "nurbscurve", "curve", "crv"}:
+                parts = low.split()
+                if len(parts) >= 2 and parts[0] in {"degree", "deg", "d"}:
+                    try:
+                        degree = max(1, min(int(parts[1]), 11))
+                        context.scene.cad_nurbs_degree = degree
+                        state.nurbs_degree = degree
+                        self.report({"INFO"}, f"NURBS degree set to {degree}.")
+                        context.workspace.status_text_set(command_label())
+                        return
+                    except Exception:
+                        self.report({"WARNING"}, "Use: degree 3")
+                        context.workspace.status_text_set(command_label())
+                        return
+
+            if start_command_with_args(cmd, args_text):
+                return
+
+            if low in {"ortho", "f8"}:
+                context.scene.cad_ortho = not context.scene.cad_ortho
+                self.report({"INFO"}, f"Ortho {'On' if context.scene.cad_ortho else 'Off'}")
+                context.workspace.status_text_set(command_label())
+                return
+
+            if low.startswith("cplane"):
+                handled, ok, msg, start_3pt_name = run_cplane_command(context, txt)
+                if start_3pt_name:
+                    mode = "3PT"
+                    name = start_3pt_name
+                    if ":" in start_3pt_name:
+                        mode, name = start_3pt_name.split(":", 1)
+                    if mode == "CURVEPERP":
+                        self.start_cplane_curve_perp(context, name)
+                    else:
+                        self.start_cplane_3pt(context, name, mode)
+                elif ok:
+                    self.report({"INFO"}, msg)
+                else:
+                    self.report({"WARNING"}, msg)
+                context.workspace.status_text_set(command_label())
+                return
+
+            ok, msg = run_simple_cad_command(context, low)
+            if ok is None:
+                self.report({"WARNING"}, "Type x,y,z, @x,y,z, a distance value, click in the viewport, or press Esc.")
+            elif ok:
+                self.report({"INFO"}, msg)
+            else:
+                self.report({"WARNING"}, msg)
+            context.workspace.status_text_set(command_label())
+            return
 
     def update_mouse_point(self, context, event):
         raw = mouse_to_plane(context, event)
