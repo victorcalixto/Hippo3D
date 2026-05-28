@@ -99,9 +99,7 @@ Example workflow:
 
 1. Download the repository:
 
-```bash
-git clone https://github.com/YOUR_USERNAME/Hippo3D.git
-```
+[Download](https://github.com/victorcalixto/Hippo3D/archive/refs/heads/master.zip)
 
 2. Open Blender
 
