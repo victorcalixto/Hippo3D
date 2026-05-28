@@ -158,6 +158,10 @@ The project embraces openness, extensibility, experimentation, and interoperabil
 # Roadmap
 
 - [ ] Improved NURBS workflows
+- [ ] Improved modifcation system
+  - [ ] Fillet
+  - [ ] Chamfer
+  - [ ] Improved Trim   
 - [ ] Better snapping system
 - [ ] SVG/DXF interoperability
 - [ ] BIM interoperability
