@@ -25,7 +25,7 @@ Hippo3D combines:
 - CAD-style interaction
 - Blender viewport integration
 - NURBS workflows
-- Surface modeling
+- Surface-Like modeling
 - Construction planes
 - Command-line workflows
 - Open-source extensibility
@@ -47,7 +47,7 @@ Hippo3D combines:
 - XLine
 - NURBS Curves
 
-## Surface Tools
+## Surface-Like Tools
 
 - Loft
 - Revolve
@@ -81,18 +81,18 @@ Hippo3D includes a CAD-style command system directly inside Blender.
 
 Example workflow:
 
-- `/` → Open command mode
+- `Ctrl + /` → Open command mode
 - Type commands directly in the viewport
 - Press `Enter` to execute
 
 ---
 
 # Screenshots
-
-<p align="center">
-  <img src="./icons/hippo3d_logo_black.png" width="700">
-</p>
-
+<p align="center"> <img src="https://i.imgur.com/uGCxJ4u.gif" width="100%"> </p>
+<p align="center"> <img src="https://i.imgur.com/J3Hv3At.gif" width="100%"> </p>
+<p align="center"> <img src="https://i.imgur.com/s8P34oc.gif" width="100%"> </p>
+<p align="center"> <img src="https://i.imgur.com/APRiS8K.gif" width="100%"> </p>
+<p align="center"> <img src="https://i.imgur.com/4t1CtR3.gif" width="100%"> </p>
 ---
 
 # Installation
@@ -101,9 +101,7 @@ Example workflow:
 
 1. Download the repository:
 
-```bash
-git clone https://github.com/YOUR_USERNAME/Hippo3D.git
-```
+[Download](https://github.com/victorcalixto/Hippo3D/archive/refs/heads/master.zip)
 
 2. Open Blender
 
@@ -160,11 +158,12 @@ The project embraces openness, extensibility, experimentation, and interoperabil
 # Roadmap
 
 - [ ] Improved NURBS workflows
-- [ ] Constraint-based modeling
+- [ ] Improved modifcation system
+  - [ ] Fillet
+  - [ ] Chamfer
+  - [ ] Improved Trim   
 - [ ] Better snapping system
 - [ ] SVG/DXF interoperability
-- [ ] Parametric history system
-- [ ] Native GPU overlays
 - [ ] BIM interoperability
 - [ ] Geometry kernel experiments
 - [ ] Computational design workflows
