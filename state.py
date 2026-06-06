@@ -19,6 +19,10 @@ class CADState:
     pending_cplane_name = ""
     pending_cplane_mode = ""
     nurbs_degree = 3
+    occ_primitive = ""
+    occ_values = []
+    occ_prompts = []
+    occ_defaults = []
 
-
+    occ_origin = None
 state = CADState()

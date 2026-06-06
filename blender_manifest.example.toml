@@ -1,0 +1,15 @@
+schema_version = "1.0.0"
+
+id = "hippo3d"
+version = "0.1.0"
+name = "Hippo3D"
+tagline = "Free and open source modeling tools for designers"
+maintainer = "Victor Calixto"
+type = "add-on"
+
+blender_version_min = "5.0.0"
+platforms = ["linux-x64", "windows-x64", "macos-x64", "macos-arm64"]
+
+license = [
+  "SPDX:GPL-3.0-or-later",
+]

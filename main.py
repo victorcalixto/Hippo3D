@@ -6,6 +6,7 @@ from .state import *
 from .cplanes import *
 from .cplanes import _builtin_cplane_axes
 from .geometry import *
+import json
 
 # -----------------------------------------------------------------------------
 # Surface helpers - Phase 2
@@ -282,6 +283,10 @@ def run_simple_cad_command(context, cmd):
     """Run non-point CAD commands available from command line and UI."""
     raw = cmd.strip().lower()
     compact = raw.replace(" ", "")
+
+    occ_result = run_occ_command_from_text(context, cmd)
+    if occ_result[0] is not None:
+        return occ_result
 
     if compact in {"mesh", "tomesh", "convertmesh", "converttomesh", "ctm"}:
         return convert_selected_to_mesh(context)
@@ -650,6 +655,15 @@ def resolve_snap(context, event, raw_point):
 
 
 def command_label():
+    if getattr(state, "occ_primitive", ""):
+        index = len(getattr(state, "occ_values", []))
+        prompts = getattr(state, "occ_prompts", [])
+        defaults = getattr(state, "occ_defaults", [])
+        if index < len(prompts):
+            default = defaults[index] if index < len(defaults) else ""
+            if default == "CURSOR":
+                default = "Cursor"
+            return f"Hippo3D[{active_cplane_label(bpy.context)}]> {state.command} | {prompts[index]} <{default}> (click or type): {state.input_text}"
     if state.command:
         return f"Hippo3D[{active_cplane_label(bpy.context)}]> {state.command} {state.input_text}"
     return f"Hippo3D[{active_cplane_label(bpy.context)}]> {state.input_text}"
@@ -664,6 +678,11 @@ def finish_command(context):
     state.input_text = ""
     state.snap_point = None
     state.snap_label = ""
+    state.occ_primitive = ""
+    state.occ_values = []
+    state.occ_prompts = []
+    state.occ_defaults = []
+    state.occ_origin = None
     context.workspace.status_text_set(None)
     if getattr(state, "cursor_set", False):
         try:
@@ -1281,7 +1300,19 @@ class Hippo3D_OT_Command(Operator):
         txt = state.input_text.strip()
         state.input_text = ""
 
-        if not txt:
+        if not txt and not getattr(state, "occ_primitive", ""):
+            context.workspace.status_text_set(command_label())
+            return
+
+        if getattr(state, "occ_primitive", ""):
+            ok, msg = handle_occ_progressive_input(context, txt)
+            if ok is None:
+                pass
+            elif ok:
+                if msg:
+                    self.report({"INFO"}, msg)
+            else:
+                self.report({"WARNING"}, msg)
             context.workspace.status_text_set(command_label())
             return
 
@@ -1371,6 +1402,28 @@ class Hippo3D_OT_Command(Operator):
             raw_parts = txt.split(maxsplit=1)
             cmd = raw_parts[0].lower()
             args_text = raw_parts[1] if len(raw_parts) > 1 else ""
+
+            occ_aliases = {
+                "occbox": "box",
+                "occ_box": "box",
+                "occsphere": "sphere",
+                "occ_sphere": "sphere",
+                "occcylinder": "cylinder",
+                "occ_cylinder": "cylinder",
+                "occcone": "cone",
+                "occ_cone": "cone",
+                "occtorus": "torus",
+                "occ_torus": "torus",
+            }
+
+            if cmd in occ_aliases:
+                if args_text:
+                    ok, msg = run_occ_primitive_command(context, occ_aliases[cmd], args_text)
+                    self.report({"INFO" if ok else "WARNING"}, msg)
+                    finish_occ_command(context)
+                    return
+                start_occ_progressive_command(context, occ_aliases[cmd])
+                return
 
             if start_command_with_args(cmd, args_text):
                 return
@@ -1555,6 +1608,14 @@ class Hippo3D_OT_Command(Operator):
             return {"RUNNING_MODAL"}
 
         if event.type == "LEFTMOUSE" and event.value == "PRESS":
+            if getattr(state, "occ_primitive", "") and len(getattr(state, "occ_values", [])) == 0:
+                self.update_mouse_point(context, event)
+                ok, msg = handle_occ_progressive_point(context, state.mouse_world)
+                if ok is False:
+                    self.report({"WARNING"}, msg)
+                context.workspace.status_text_set(command_label())
+                return {"RUNNING_MODAL"}
+
             if state.command == "cplane_face":
                 hit = raycast_mesh_face(context, event)
                 ok, msg = create_cplane_from_face_hit(
@@ -1578,6 +1639,9 @@ class Hippo3D_OT_Command(Operator):
 
         if event.type in {"RET", "NUMPAD_ENTER"} and event.value == "PRESS":
             self.process_enter(context)
+            if getattr(state, "occ_finished", False):
+                state.occ_finished = False
+                return {"FINISHED"}
             return {"RUNNING_MODAL"}
 
         if event.type == "BACK_SPACE" and event.value == "PRESS":
@@ -4599,7 +4663,836 @@ def create_arc_from_3_points(context, p0, p1, p2, segments=64):
     return obj
 
 
-classes = [Hippo3D_OT_Command, Hippo3D_OT_StartLine, Hippo3D_OT_StartPolyline, Hippo3D_OT_StartRectangle, Hippo3D_OT_StartCircle, Hippo3D_OT_StartNurbs, Hippo3D_OT_SetSelectedNurbsDegree, Hippo3D_OT_Hippo3D_Loft, CAD_OT_LoftSurface, CAD_OT_LoftRealModifier, HIPPO_OT_NativeStatus, HIPPO_OT_StartArc, HIPPO_OT_Ellipse, HIPPO_OT_Polygon, HIPPO_OT_Project, HIPPO_OT_Array, HIPPO_OT_Explode, HIPPO_OT_XLine, HIPPO_OT_Offset,  HIPPO_OT_Trim, HIPPO_OT_Hippo3D_PlanarSurface, HIPPO_OT_Hippo3D_EdgeSurface, Hippo3D_OT_Hippo3D_Revolve, Hippo3D_OT_ClearRevolveAxis, Hippo3D_OT_SetRevolveAxis, CAD_OT_PipeSurface, CAD_OT_ExtrudeSurface, Hippo3D_OT_StartCommand, Hippo3D_OT_ToggleOrtho, Hippo3D_OT_ConvertToMesh, Hippo3D_OT_Join, Hippo3D_OT_SaveCPlane, Hippo3D_OT_RestoreCPlane, Hippo3D_OT_StartCPlane3Pt, Hippo3D_OT_StartCPlaneFace, Hippo3D_OT_StartCPlaneCurvePerp, Hippo3D_OT_RotateCPlane, Hippo3D_OT_StartCPlaneRotate3Pt, Hippo3D_OT_ApplyCPlaneAxisRotation, Hippo3D_OT_StartCPlaneAxisRotate, Hippo3D_OT_StartCPlaneMove, Hippo3D_OT_CameraToCPlane, Hippo3D_OT_ViewToCPlane, Hippo3D_OT_StartCPlaneZAxis, Hippo3D_OT_StartCPlaneXAxis, Hippo3D_OT_ToggleCPlaneVisibilityExplicit, Hippo3D_OT_ActivateCPlaneExplicit, Hippo3D_OT_RefreshCPlaneList, Hippo3D_OT_DeleteSelectedCPlane, Hippo3D_OT_ActivateSelectedCPlane, Hippo3D_OT_ToggleSelectedCPlaneVisible, Hippo3D_UL_CPlaneList, Hippo3D_CPlaneListItem, Hippo3D_OT_SetBuiltinCPlane, Hippo3D_OT_RestoreCPlaneByName, Hippo3D_OT_SetCPlaneVisible, Hippo3D_OT_DeleteCPlane, Hippo3D_PT_MainPanel]
+
+
+# -----------------------------------------------------------------------------
+# OCC primitive commands
+# -----------------------------------------------------------------------------
+
+def hippo_load_occ_core():
+    import importlib
+    import sys
+    from pathlib import Path
+
+    addon_dir = Path(__file__).resolve().parent
+    native_candidates = [
+        addon_dir / "native" / "build",
+        addon_dir / "native" / "linux-x64",
+        addon_dir / "native" / "windows-x64",
+        addon_dir / "native" / "macos-x64",
+        addon_dir / "native" / "macos-arm64",
+    ]
+
+    for native_dir in native_candidates:
+        if native_dir.exists() and str(native_dir) not in sys.path:
+            sys.path.insert(0, str(native_dir))
+
+    return importlib.import_module("hippo_occ_core")
+
+
+def hippo_parse_occ_args(context, args_text):
+    tokens = args_text.replace(";", " ").split()
+    origin = None
+    values = []
+
+    for token in tokens:
+        point = parse_point(token, context, None)
+        if point is not None and "," in token and origin is None:
+            origin = point
+            continue
+
+        try:
+            values.append(float(token))
+        except Exception:
+            raise ValueError(f"Could not parse OCC argument: {token}")
+
+    if origin is None:
+        origin = context.scene.cursor.location.copy()
+
+    return origin, values
+
+
+
+
+def hippo_get_occ_display_material():
+    mat = bpy.data.materials.get("Hippo3D_OCC_Display")
+    if mat is None:
+        mat = bpy.data.materials.new("Hippo3D_OCC_Display")
+        mat.diffuse_color = (0.55, 0.72, 0.95, 0.55)
+    return mat
+
+def hippo_create_occ_mesh_object(context, name, data, location=None):
+    vertices = data.get("vertices", [])
+    faces = data.get("faces", [])
+
+    mesh = bpy.data.meshes.new(name + "_Mesh")
+    mesh.from_pydata(vertices, [], faces)
+
+    for polygon in mesh.polygons:
+        polygon.use_smooth = True
+
+    mesh.update()
+
+    obj = bpy.data.objects.new(name, mesh)
+
+    if location is None:
+        location = context.scene.cursor.location.copy()
+
+    obj.location = location
+
+    mat = hippo_get_occ_display_material()
+    obj.data.materials.append(mat)
+    obj["hippo_kernel"] = "occ"
+    obj["hippo_occ_preview"] = True
+    obj["hippo_occ_display_cache"] = True
+    obj["hippo_occ_edit_locked"] = True
+    obj["hippo_occ_shape_id"] = int(data.get("shape_id", -1))
+    obj["hippo_occ_edges_json"] = hippo_occ_edges_json_from_data(data)
+    obj.show_wire = False
+    obj.show_in_front = False
+
+    context.collection.objects.link(obj)
+
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+
+    return obj
+
+
+
+def hippo_occ_edges_json_from_data(data):
+    try:
+        return json.dumps(data.get("edges", []))
+    except Exception:
+        return "[]"
+
+
+def hippo_get_occ_edge_polylines(obj):
+    raw = obj.get("hippo_occ_edges_json", "[]")
+    try:
+        return json.loads(raw)
+    except Exception:
+        return []
+
+
+def draw_occ_edge_cache_callback():
+    context = bpy.context
+    if not context or not context.scene:
+        return
+
+    shader = gpu.shader.from_builtin("UNIFORM_COLOR")
+    gpu.state.line_width_set(1.6)
+
+    for obj in context.scene.objects:
+        if obj.get("hippo_kernel") != "occ":
+            continue
+
+        edges = hippo_get_occ_edge_polylines(obj)
+        if not edges:
+            continue
+
+        matrix = obj.matrix_world
+
+        for polyline in edges:
+            if len(polyline) < 2:
+                continue
+
+            coords = []
+            for a, b in zip(polyline[:-1], polyline[1:]):
+                pa = matrix @ Vector((a[0], a[1], a[2]))
+                pb = matrix @ Vector((b[0], b[1], b[2]))
+                coords.extend([pa, pb])
+
+            if coords:
+                batch = batch_for_shader(shader, "LINES", {"pos": coords})
+                shader.bind()
+                shader.uniform_float("color", (0.2, 0.85, 1.0, 1.0))
+                batch.draw(shader)
+
+    gpu.state.line_width_set(1.0)
+
+
+def run_occ_primitive_command(context, primitive, args_text=""):
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+
+    primitive = primitive.lower().strip()
+
+    try:
+        origin, values = hippo_parse_occ_args(context, args_text)
+
+        if primitive == "box":
+            width = values[0] if len(values) >= 1 else 10.0
+            depth = values[1] if len(values) >= 2 else width
+            height = values[2] if len(values) >= 3 else width
+            data = occ.make_box_mesh(width, depth, height)
+            obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Box", data, origin)
+            obj["hippo_occ_width"] = width
+            obj["hippo_occ_depth"] = depth
+            obj["hippo_occ_height"] = height
+
+        elif primitive == "sphere":
+            radius = values[0] if len(values) >= 1 else 5.0
+            data = occ.make_sphere_mesh(radius)
+            obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Sphere", data, origin)
+            obj["hippo_occ_radius"] = radius
+
+        elif primitive == "cylinder":
+            radius = values[0] if len(values) >= 1 else 5.0
+            height = values[1] if len(values) >= 2 else 10.0
+            data = occ.make_cylinder_mesh(radius, height)
+            obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Cylinder", data, origin)
+            obj["hippo_occ_radius"] = radius
+            obj["hippo_occ_height"] = height
+
+        elif primitive == "cone":
+            radius1 = values[0] if len(values) >= 1 else 5.0
+            radius2 = values[1] if len(values) >= 2 else 0.0
+            height = values[2] if len(values) >= 3 else 10.0
+            data = occ.make_cone_mesh(radius1, radius2, height)
+            obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Cone", data, origin)
+            obj["hippo_occ_radius1"] = radius1
+            obj["hippo_occ_radius2"] = radius2
+            obj["hippo_occ_height"] = height
+
+        elif primitive == "torus":
+            major_radius = values[0] if len(values) >= 1 else 5.0
+            minor_radius = values[1] if len(values) >= 2 else 1.25
+            data = occ.make_torus_mesh(major_radius, minor_radius)
+            obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Torus", data, origin)
+            obj["hippo_occ_major_radius"] = major_radius
+            obj["hippo_occ_minor_radius"] = minor_radius
+
+        else:
+            return False, f"Unknown OCC primitive: {primitive}"
+
+        obj["hippo_occ_type"] = primitive
+        return True, f"Created OCC {primitive.title()}."
+
+    except Exception as exc:
+        return False, f"OCC {primitive} failed: {exc}"
+
+
+def run_occ_command_from_text(context, text):
+    parts = text.strip().split(maxsplit=1)
+    command = parts[0].lower() if parts else ""
+    args_text = parts[1] if len(parts) > 1 else ""
+
+    aliases = {
+        "occbox": "box",
+        "occ_box": "box",
+        "occsphere": "sphere",
+        "occ_sphere": "sphere",
+        "occcylinder": "cylinder",
+        "occ_cylinder": "cylinder",
+        "occcone": "cone",
+        "occ_cone": "cone",
+        "occtorus": "torus",
+        "occ_torus": "torus",
+    }
+
+    primitive = aliases.get(command)
+    if primitive is None:
+        return None, ""
+
+    return run_occ_primitive_command(context, primitive, args_text)
+
+
+
+def hippo_occ_progressive_spec(primitive):
+    specs = {
+        "box": (["Insertion Point", "Width", "Depth", "Height"], ["CURSOR", 10.0, 10.0, 10.0]),
+        "sphere": (["Center", "Radius"], ["CURSOR", 5.0]),
+        "cylinder": (["Base Center", "Radius", "Height"], ["CURSOR", 5.0, 10.0]),
+        "cone": (["Base Center", "Radius 1", "Radius 2", "Height"], ["CURSOR", 5.0, 0.0, 10.0]),
+        "torus": (["Center", "Major Radius", "Minor Radius"], ["CURSOR", 5.0, 1.25]),
+    }
+    return specs.get(primitive)
+
+
+def start_occ_progressive_command(context, primitive):
+    spec = hippo_occ_progressive_spec(primitive)
+    if spec is None:
+        return False
+
+    prompts, defaults = spec
+
+    state.command = "occ" + primitive
+    state.occ_primitive = primitive
+    state.occ_values = []
+    state.occ_prompts = prompts
+    state.occ_defaults = defaults
+    state.occ_origin = None
+    state.points = []
+    state.active = True
+
+    context.workspace.status_text_set(command_label())
+    return True
+
+
+
+def finish_occ_command(context):
+    finish_command(context)
+
+    state.input_text = ""
+    state.command = ""
+    state.active = False
+    state.points = []
+    state.occ_primitive = ""
+    state.occ_values = []
+    state.occ_prompts = []
+    state.occ_defaults = []
+    state.occ_origin = None
+    state.occ_finished = True
+
+    context.workspace.status_text_set(command_label())
+
+    if context.area:
+        context.area.tag_redraw()
+
+
+def handle_occ_progressive_input(context, text):
+    primitive = getattr(state, "occ_primitive", "")
+    if not primitive:
+        return None, ""
+
+    index = len(getattr(state, "occ_values", []))
+    defaults = getattr(state, "occ_defaults", [])
+
+    if index == 0:
+        if not text.strip():
+            state.occ_origin = context.scene.cursor.location.copy()
+            state.occ_values.append("ORIGIN")
+            context.workspace.status_text_set(command_label())
+            return True, ""
+
+        point = parse_point(text.strip(), context, None)
+        if point is None:
+            return False, "Invalid insertion point. Type x,y,z or press Enter to use the 3D cursor."
+
+        state.occ_origin = point
+        state.occ_values.append("ORIGIN")
+        context.workspace.status_text_set(command_label())
+        return True, ""
+
+    if text.strip() == "":
+        if index < len(defaults):
+            value = defaults[index]
+        else:
+            return False, "Missing OCC value."
+    else:
+        try:
+            value = float(text.strip())
+        except Exception:
+            return False, f"Expected a number, got: {text}"
+
+    state.occ_values.append(value)
+
+    if len(state.occ_values) < len(state.occ_prompts):
+        context.workspace.status_text_set(command_label())
+        return True, ""
+
+    numeric_values = state.occ_values[1:]
+    args_text = " ".join(str(v) for v in numeric_values)
+
+    origin = getattr(state, "occ_origin", None)
+    if origin is None:
+        origin = context.scene.cursor.location.copy()
+
+    origin_prefix = f"{origin.x},{origin.y},{origin.z}"
+    ok, msg = run_occ_primitive_command(context, primitive, origin_prefix + " " + args_text)
+    finish_occ_command(context)
+    return ok, msg
+
+
+
+def handle_occ_progressive_point(context, point):
+    primitive = getattr(state, "occ_primitive", "")
+    if not primitive:
+        return None, ""
+
+    if len(getattr(state, "occ_values", [])) != 0:
+        return None, ""
+
+    state.occ_origin = point.copy()
+    state.occ_values.append("ORIGIN")
+    context.workspace.status_text_set(command_label())
+    return True, ""
+
+
+class HIPPO_OT_OCCBox(Operator):
+    bl_idname = "cad.occ_box"
+    bl_label = "OCC Box"
+    bl_description = "Create an OpenCascade box preview mesh"
+
+    width: FloatProperty(name="Width", default=10.0, min=0.001)
+    depth: FloatProperty(name="Depth", default=10.0, min=0.001)
+    height: FloatProperty(name="Height", default=10.0, min=0.001)
+
+    def execute(self, context):
+        ok, msg = run_occ_primitive_command(context, "box", f"{self.width} {self.depth} {self.height}")
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+
+class HIPPO_OT_OCCSphere(Operator):
+    bl_idname = "cad.occ_sphere"
+    bl_label = "OCC Sphere"
+    bl_description = "Create an OpenCascade sphere preview mesh"
+
+    radius: FloatProperty(name="Radius", default=5.0, min=0.001)
+
+    def execute(self, context):
+        ok, msg = run_occ_primitive_command(context, "sphere", f"{self.radius}")
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+
+class HIPPO_OT_OCCCylinder(Operator):
+    bl_idname = "cad.occ_cylinder"
+    bl_label = "OCC Cylinder"
+    bl_description = "Create an OpenCascade cylinder preview mesh"
+
+    radius: FloatProperty(name="Radius", default=5.0, min=0.001)
+    height: FloatProperty(name="Height", default=10.0, min=0.001)
+
+    def execute(self, context):
+        ok, msg = run_occ_primitive_command(context, "cylinder", f"{self.radius} {self.height}")
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+
+class HIPPO_OT_OCCCone(Operator):
+    bl_idname = "cad.occ_cone"
+    bl_label = "OCC Cone"
+    bl_description = "Create an OpenCascade cone preview mesh"
+
+    radius1: FloatProperty(name="Radius 1", default=5.0, min=0.001)
+    radius2: FloatProperty(name="Radius 2", default=0.0, min=0.0)
+    height: FloatProperty(name="Height", default=10.0, min=0.001)
+
+    def execute(self, context):
+        ok, msg = run_occ_primitive_command(context, "cone", f"{self.radius1} {self.radius2} {self.height}")
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+
+class HIPPO_OT_OCCTorus(Operator):
+    bl_idname = "cad.occ_torus"
+    bl_label = "OCC Torus"
+    bl_description = "Create an OpenCascade torus preview mesh"
+
+    major_radius: FloatProperty(name="Major Radius", default=5.0, min=0.001)
+    minor_radius: FloatProperty(name="Minor Radius", default=1.25, min=0.001)
+
+    def execute(self, context):
+        ok, msg = run_occ_primitive_command(context, "torus", f"{self.major_radius} {self.minor_radius}")
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+
+
+
+# -----------------------------------------------------------------------------
+# OCC display-cache edit guard
+# -----------------------------------------------------------------------------
+
+def hippo_is_locked_occ_display_object(obj):
+    return (
+        obj is not None
+        and obj.type == "MESH"
+        and obj.get("hippo_kernel") == "occ"
+        and bool(obj.get("hippo_occ_edit_locked", True))
+    )
+
+
+def hippo_guard_occ_edit_mode(scene=None):
+    context = bpy.context
+    obj = context.active_object
+
+    if not hippo_is_locked_occ_display_object(obj):
+        return
+
+    if obj.mode != "EDIT":
+        return
+
+    try:
+        bpy.ops.object.mode_set(mode="OBJECT")
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
+    except Exception:
+        pass
+
+    try:
+        hippo_occ_toggle_points(context, obj)
+    except Exception:
+        pass
+
+
+def hippo_occ_edit_guard_timer():
+    hippo_guard_occ_edit_mode()
+    return 0.25
+
+
+# -----------------------------------------------------------------------------
+# OCC PointsOn / PointsOff using selectable Empty handles
+# -----------------------------------------------------------------------------
+
+def hippo_occ_is_object(obj):
+    return obj is not None and obj.get("hippo_kernel") == "occ"
+
+
+def hippo_occ_is_handle(obj):
+    return obj is not None and obj.get("hippo_occ_handle") is True
+
+
+def hippo_occ_parent_from_handle(handle):
+    if not hippo_occ_is_handle(handle):
+        return None
+    return bpy.data.objects.get(handle.get("hippo_occ_parent", ""))
+
+
+def hippo_occ_active_or_parent(context):
+    obj = context.active_object
+    if hippo_occ_is_object(obj):
+        return obj
+    if hippo_occ_is_handle(obj):
+        return hippo_occ_parent_from_handle(obj)
+    return None
+
+
+def hippo_occ_handle_collection(context):
+    coll = bpy.data.collections.get("Hippo3D_OCC_Handles")
+    if coll is None:
+        coll = bpy.data.collections.new("Hippo3D_OCC_Handles")
+        context.scene.collection.children.link(coll)
+    return coll
+
+
+def hippo_occ_loc_key(location):
+    return f"{location.x:.9f},{location.y:.9f},{location.z:.9f}"
+
+
+def hippo_occ_make_empty_handle(context, parent_obj, handle_type, label, location):
+    handle = bpy.data.objects.new(f"Hippo3D_OCC_Handle_{parent_obj.name}_{handle_type}", None)
+    handle.empty_display_type = "SPHERE"
+    handle.empty_display_size = 0.35
+    handle.location = location.copy()
+    handle.show_in_front = True
+    handle.hide_select = False
+    handle["hippo_occ_handle"] = True
+    handle["hippo_occ_parent"] = parent_obj.name
+    handle["hippo_occ_handle_type"] = handle_type
+    handle["hippo_occ_handle_label"] = label
+    handle["hippo_occ_last_location"] = hippo_occ_loc_key(handle.location)
+    hippo_occ_handle_collection(context).objects.link(handle)
+    return handle
+
+
+def hippo_occ_remove_handles_for_object(obj):
+    if obj is None:
+        return
+    for handle in list(bpy.data.objects):
+        if hippo_occ_is_handle(handle) and handle.get("hippo_occ_parent") == obj.name:
+            bpy.data.objects.remove(handle, do_unlink=True)
+
+
+def hippo_occ_remove_all_handles():
+    for handle in list(bpy.data.objects):
+        if hippo_occ_is_handle(handle):
+            bpy.data.objects.remove(handle, do_unlink=True)
+
+
+def hippo_occ_handle_specs(obj):
+    if not hippo_occ_is_object(obj):
+        return []
+    origin = obj.location.copy()
+    occ_type = obj.get("hippo_occ_type", "")
+    specs = []
+
+    def add(kind, label, point):
+        specs.append((kind, label, point.copy()))
+
+    if occ_type == "box":
+        w = float(obj.get("hippo_occ_width", 10.0))
+        d = float(obj.get("hippo_occ_depth", 10.0))
+        h = float(obj.get("hippo_occ_height", 10.0))
+        add("origin", "Origin", origin)
+        add("width", "Width", origin + Vector((w, 0.0, 0.0)))
+        add("depth", "Depth", origin + Vector((0.0, d, 0.0)))
+        add("height", "Height", origin + Vector((0.0, 0.0, h)))
+    elif occ_type == "sphere":
+        r = float(obj.get("hippo_occ_radius", 5.0))
+        add("center", "Center", origin)
+        add("radius", "Radius", origin + Vector((r, 0.0, 0.0)))
+    elif occ_type == "cylinder":
+        r = float(obj.get("hippo_occ_radius", 5.0))
+        h = float(obj.get("hippo_occ_height", 10.0))
+        add("base", "Base", origin)
+        add("radius", "Radius", origin + Vector((r, 0.0, 0.0)))
+        add("height", "Height", origin + Vector((0.0, 0.0, h)))
+    elif occ_type == "cone":
+        r1 = float(obj.get("hippo_occ_radius1", 5.0))
+        r2 = float(obj.get("hippo_occ_radius2", 0.0))
+        h = float(obj.get("hippo_occ_height", 10.0))
+        add("base", "Base", origin)
+        add("radius1", "Radius 1", origin + Vector((r1, 0.0, 0.0)))
+        add("height", "Height", origin + Vector((0.0, 0.0, h)))
+        add("radius2", "Radius 2", origin + Vector((r2, 0.0, h)))
+    elif occ_type == "torus":
+        major = float(obj.get("hippo_occ_major_radius", 5.0))
+        minor = float(obj.get("hippo_occ_minor_radius", 1.25))
+        add("center", "Center", origin)
+        add("major_radius", "Major", origin + Vector((major, 0.0, 0.0)))
+        add("minor_radius", "Minor", origin + Vector((major + minor, 0.0, 0.0)))
+    return specs
+
+
+def hippo_occ_points_are_on(obj):
+    if not hippo_occ_is_object(obj):
+        return False
+    return any(hippo_occ_is_handle(h) and h.get("hippo_occ_parent") == obj.name for h in bpy.data.objects)
+
+
+def hippo_occ_points_on(context, obj=None):
+    obj = obj or hippo_occ_active_or_parent(context)
+    if not hippo_occ_is_object(obj):
+        return False, "Select an OCC object first."
+    specs = hippo_occ_handle_specs(obj)
+    if not specs:
+        return False, f"PointsOn is not implemented for OCC type: {obj.get('hippo_occ_type', '')}"
+    hippo_occ_remove_handles_for_object(obj)
+    handles = [hippo_occ_make_empty_handle(context, obj, kind, label, point) for kind, label, point in specs]
+    obj["hippo_occ_points_on"] = True
+    obj["hippo_occ_edit_mode"] = True
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    for handle in handles:
+        handle.select_set(True)
+    context.view_layer.objects.active = handles[0] if handles else obj
+    return True, "OCC control points enabled."
+
+
+def hippo_occ_points_off(context, obj=None):
+    obj = obj or hippo_occ_active_or_parent(context)
+    if hippo_occ_is_object(obj):
+        hippo_occ_remove_handles_for_object(obj)
+        obj["hippo_occ_points_on"] = False
+        obj["hippo_occ_edit_mode"] = False
+        bpy.ops.object.select_all(action="DESELECT")
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
+        return True, "OCC control points disabled."
+    hippo_occ_remove_all_handles()
+    return True, "All OCC control points disabled."
+
+
+def hippo_occ_toggle_points(context, obj=None):
+    obj = obj or hippo_occ_active_or_parent(context)
+    if not hippo_occ_is_object(obj):
+        return None, ""
+    if hippo_occ_points_are_on(obj):
+        return hippo_occ_points_off(context, obj)
+    return hippo_occ_points_on(context, obj)
+
+
+def hippo_occ_mesh_replace(obj, data):
+    if obj is None or obj.type != "MESH":
+        return
+    mesh = obj.data
+    mesh.clear_geometry()
+    mesh.from_pydata(data.get("vertices", []), [], data.get("faces", []))
+    for polygon in mesh.polygons:
+        polygon.use_smooth = True
+    mesh.update()
+    obj["hippo_occ_shape_id"] = int(data.get("shape_id", obj.get("hippo_occ_shape_id", -1)))
+    try:
+        obj["hippo_occ_edges_json"] = hippo_occ_edges_json_from_data(data)
+    except Exception:
+        pass
+
+
+def hippo_occ_move_other_handles(parent_obj, moved_handle, delta):
+    for other in bpy.data.objects:
+        if hippo_occ_is_handle(other) and other.get("hippo_occ_parent") == parent_obj.name and other != moved_handle:
+            other.location += delta
+            other["hippo_occ_last_location"] = hippo_occ_loc_key(other.location)
+
+
+def hippo_occ_rebuild_from_handle(context, parent_obj, handle):
+    if not hippo_occ_is_object(parent_obj) or not hippo_occ_is_handle(handle):
+        return False
+    try:
+        occ = hippo_load_occ_core()
+    except Exception:
+        return False
+
+    occ_type = parent_obj.get("hippo_occ_type", "")
+    handle_type = handle.get("hippo_occ_handle_type", "")
+    p = handle.location.copy()
+    origin = parent_obj.location.copy()
+
+    try:
+        if occ_type == "box":
+            w = float(parent_obj.get("hippo_occ_width", 10.0))
+            d = float(parent_obj.get("hippo_occ_depth", 10.0))
+            h = float(parent_obj.get("hippo_occ_height", 10.0))
+            if handle_type == "origin":
+                delta = p - origin
+                parent_obj.location = p
+                hippo_occ_move_other_handles(parent_obj, handle, delta)
+                return True
+            if handle_type == "width":
+                w = max(0.001, abs((p - origin).x))
+            elif handle_type == "depth":
+                d = max(0.001, abs((p - origin).y))
+            elif handle_type == "height":
+                h = max(0.001, abs((p - origin).z))
+            data = occ.make_box_mesh(w, d, h)
+            hippo_occ_mesh_replace(parent_obj, data)
+            parent_obj["hippo_occ_width"], parent_obj["hippo_occ_depth"], parent_obj["hippo_occ_height"] = w, d, h
+        elif occ_type == "sphere":
+            r = float(parent_obj.get("hippo_occ_radius", 5.0))
+            if handle_type == "center":
+                delta = p - origin
+                parent_obj.location = p
+                hippo_occ_move_other_handles(parent_obj, handle, delta)
+                return True
+            if handle_type == "radius":
+                r = max(0.001, (p - origin).length)
+            data = occ.make_sphere_mesh(r)
+            hippo_occ_mesh_replace(parent_obj, data)
+            parent_obj["hippo_occ_radius"] = r
+        elif occ_type == "cylinder":
+            r = float(parent_obj.get("hippo_occ_radius", 5.0))
+            h = float(parent_obj.get("hippo_occ_height", 10.0))
+            if handle_type == "base":
+                delta = p - origin
+                parent_obj.location = p
+                hippo_occ_move_other_handles(parent_obj, handle, delta)
+                return True
+            if handle_type == "radius":
+                r = max(0.001, (p - origin).length)
+            elif handle_type == "height":
+                h = max(0.001, abs((p - origin).z))
+            data = occ.make_cylinder_mesh(r, h)
+            hippo_occ_mesh_replace(parent_obj, data)
+            parent_obj["hippo_occ_radius"], parent_obj["hippo_occ_height"] = r, h
+        elif occ_type == "cone":
+            r1 = float(parent_obj.get("hippo_occ_radius1", 5.0))
+            r2 = float(parent_obj.get("hippo_occ_radius2", 0.0))
+            h = float(parent_obj.get("hippo_occ_height", 10.0))
+            if handle_type == "base":
+                delta = p - origin
+                parent_obj.location = p
+                hippo_occ_move_other_handles(parent_obj, handle, delta)
+                return True
+            if handle_type == "radius1":
+                r1 = max(0.001, Vector((p.x - origin.x, p.y - origin.y, 0.0)).length)
+            elif handle_type == "height":
+                h = max(0.001, abs((p - origin).z))
+            elif handle_type == "radius2":
+                top = origin + Vector((0.0, 0.0, h))
+                r2 = max(0.0, Vector((p.x - top.x, p.y - top.y, 0.0)).length)
+            data = occ.make_cone_mesh(r1, r2, h)
+            hippo_occ_mesh_replace(parent_obj, data)
+            parent_obj["hippo_occ_radius1"], parent_obj["hippo_occ_radius2"], parent_obj["hippo_occ_height"] = r1, r2, h
+        elif occ_type == "torus":
+            major = float(parent_obj.get("hippo_occ_major_radius", 5.0))
+            minor = float(parent_obj.get("hippo_occ_minor_radius", 1.25))
+            if handle_type == "center":
+                delta = p - origin
+                parent_obj.location = p
+                hippo_occ_move_other_handles(parent_obj, handle, delta)
+                return True
+            if handle_type == "major_radius":
+                major = max(0.001, (p - origin).length)
+            elif handle_type == "minor_radius":
+                minor = max(0.001, abs((p - origin).length - major))
+            data = occ.make_torus_mesh(major, minor)
+            hippo_occ_mesh_replace(parent_obj, data)
+            parent_obj["hippo_occ_major_radius"], parent_obj["hippo_occ_minor_radius"] = major, minor
+        else:
+            return False
+    except Exception:
+        return False
+    return True
+
+
+def hippo_occ_points_timer():
+    for handle in list(bpy.data.objects):
+        if not hippo_occ_is_handle(handle):
+            continue
+        current = hippo_occ_loc_key(handle.location)
+        previous = handle.get("hippo_occ_last_location", "")
+        if current == previous:
+            continue
+        handle["hippo_occ_last_location"] = current
+        parent = hippo_occ_parent_from_handle(handle)
+        if parent is not None:
+            hippo_occ_rebuild_from_handle(bpy.context, parent, handle)
+    return 0.12
+
+
+def hippo_occ_draw_empty_handles_callback():
+    context = bpy.context
+    if not context or not context.scene:
+        return
+    shader = gpu.shader.from_builtin("UNIFORM_COLOR")
+    line_coords, point_coords = [], []
+    for obj in context.scene.objects:
+        if not hippo_occ_is_object(obj) or not obj.get("hippo_occ_points_on", False):
+            continue
+        origin = obj.location.copy()
+        for handle in bpy.data.objects:
+            if hippo_occ_is_handle(handle) and handle.get("hippo_occ_parent") == obj.name:
+                point_coords.append(handle.location.copy())
+                if handle.get("hippo_occ_handle_type") not in {"origin", "center", "base"}:
+                    line_coords.extend([origin, handle.location.copy()])
+    if line_coords:
+        gpu.state.line_width_set(1.4)
+        batch = batch_for_shader(shader, "LINES", {"pos": line_coords})
+        shader.bind()
+        shader.uniform_float("color", (1.0, 0.82, 0.05, 0.85))
+        batch.draw(shader)
+        gpu.state.line_width_set(1.0)
+    if point_coords:
+        gpu.state.point_size_set(9.0)
+        batch = batch_for_shader(shader, "POINTS", {"pos": point_coords})
+        shader.bind()
+        shader.uniform_float("color", (1.0, 0.82, 0.05, 1.0))
+        batch.draw(shader)
+        gpu.state.point_size_set(1.0)
+
+
+class HIPPO_OT_OCCTogglePoints(Operator):
+    bl_idname = "cad.occ_toggle_points"
+    bl_label = "OCC PointsOn"
+    bl_description = "Toggle OCC parameter handles. Tab on an OCC object enters/leaves this mode."
+
+    def execute(self, context):
+        ok, msg = hippo_occ_toggle_points(context)
+        if ok is None:
+            return {"PASS_THROUGH"}
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
+
+
+def hippo_occ_points_on_command(context):
+    return hippo_occ_points_on(context, hippo_occ_active_or_parent(context))
+
+
+def hippo_occ_points_off_command(context):
+    return hippo_occ_points_off(context, hippo_occ_active_or_parent(context))
+
+
+classes = [HIPPO_OT_OCCTogglePoints, HIPPO_OT_OCCBox, HIPPO_OT_OCCSphere, HIPPO_OT_OCCCylinder, HIPPO_OT_OCCCone, HIPPO_OT_OCCTorus, Hippo3D_OT_Command, Hippo3D_OT_StartLine, Hippo3D_OT_StartPolyline, Hippo3D_OT_StartRectangle, Hippo3D_OT_StartCircle, Hippo3D_OT_StartNurbs, Hippo3D_OT_SetSelectedNurbsDegree, Hippo3D_OT_Hippo3D_Loft, CAD_OT_LoftSurface, CAD_OT_LoftRealModifier, HIPPO_OT_NativeStatus, HIPPO_OT_StartArc, HIPPO_OT_Ellipse, HIPPO_OT_Polygon, HIPPO_OT_Project, HIPPO_OT_Array, HIPPO_OT_Explode, HIPPO_OT_XLine, HIPPO_OT_Offset,  HIPPO_OT_Trim, HIPPO_OT_Hippo3D_PlanarSurface, HIPPO_OT_Hippo3D_EdgeSurface, Hippo3D_OT_Hippo3D_Revolve, Hippo3D_OT_ClearRevolveAxis, Hippo3D_OT_SetRevolveAxis, CAD_OT_PipeSurface, CAD_OT_ExtrudeSurface, Hippo3D_OT_StartCommand, Hippo3D_OT_ToggleOrtho, Hippo3D_OT_ConvertToMesh, Hippo3D_OT_Join, Hippo3D_OT_SaveCPlane, Hippo3D_OT_RestoreCPlane, Hippo3D_OT_StartCPlane3Pt, Hippo3D_OT_StartCPlaneFace, Hippo3D_OT_StartCPlaneCurvePerp, Hippo3D_OT_RotateCPlane, Hippo3D_OT_StartCPlaneRotate3Pt, Hippo3D_OT_ApplyCPlaneAxisRotation, Hippo3D_OT_StartCPlaneAxisRotate, Hippo3D_OT_StartCPlaneMove, Hippo3D_OT_CameraToCPlane, Hippo3D_OT_ViewToCPlane, Hippo3D_OT_StartCPlaneZAxis, Hippo3D_OT_StartCPlaneXAxis, Hippo3D_OT_ToggleCPlaneVisibilityExplicit, Hippo3D_OT_ActivateCPlaneExplicit, Hippo3D_OT_RefreshCPlaneList, Hippo3D_OT_DeleteSelectedCPlane, Hippo3D_OT_ActivateSelectedCPlane, Hippo3D_OT_ToggleSelectedCPlaneVisible, Hippo3D_UL_CPlaneList, Hippo3D_CPlaneListItem, Hippo3D_OT_SetBuiltinCPlane, Hippo3D_OT_RestoreCPlaneByName, Hippo3D_OT_SetCPlaneVisible, Hippo3D_OT_DeleteCPlane, Hippo3D_PT_MainPanel]
 
 
 def _cad_cplane_enum_update(self, context):
@@ -8718,6 +9611,42 @@ def register():
     register_props()
 
     try:
+        bpy.app.timers.register(hippo_occ_points_timer, first_interval=0.12, persistent=True)
+    except Exception:
+        pass
+
+    try:
+        if not hasattr(state, "occ_points_draw_handle"):
+            state.occ_points_draw_handle = None
+        if state.occ_points_draw_handle is None:
+            state.occ_points_draw_handle = bpy.types.SpaceView3D.draw_handler_add(
+                hippo_occ_draw_empty_handles_callback,
+                (),
+                "WINDOW",
+                "POST_VIEW",
+            )
+    except Exception:
+        pass
+
+    try:
+        bpy.app.timers.register(hippo_occ_edit_guard_timer, first_interval=0.25, persistent=True)
+    except Exception:
+        pass
+
+    try:
+        if not hasattr(state, "occ_edge_draw_handle"):
+            state.occ_edge_draw_handle = None
+        if state.occ_edge_draw_handle is None:
+            state.occ_edge_draw_handle = bpy.types.SpaceView3D.draw_handler_add(
+                draw_occ_edge_cache_callback,
+                (),
+                "WINDOW",
+                "POST_VIEW",
+            )
+    except Exception:
+        pass
+
+    try:
         if state.cplane_draw_handle is None:
             state.cplane_draw_handle = bpy.types.SpaceView3D.draw_handler_add(
                 draw_cplanes_visual_callback,
@@ -8753,6 +9682,10 @@ def register():
     if kc:
         km = kc.keymaps.new(name="3D View", space_type="VIEW_3D")
         kmi = km.keymap_items.new("cad.start_command", type="SLASH", value="PRESS", ctrl=True)
+        kmi.active = True
+        addon_keymaps.append((km, kmi))
+
+        kmi = km.keymap_items.new("cad.occ_toggle_points", type="TAB", value="PRESS")
         kmi.active = True
         addon_keymaps.append((km, kmi))
 
@@ -8794,6 +9727,13 @@ def unregister():
         except Exception:
             pass
         state.cplane_draw_handle = None
+
+    try:
+        if hasattr(state, "occ_points_draw_handle") and state.occ_points_draw_handle is not None:
+            bpy.types.SpaceView3D.draw_handler_remove(state.occ_points_draw_handle, "WINDOW")
+            state.occ_points_draw_handle = None
+    except Exception:
+        pass
 
     unregister_props()
 
