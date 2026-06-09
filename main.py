@@ -5204,6 +5204,39 @@ def _occ_blender_curve_to_wire(obj, occ):
         return None, f"Curve conversion failed: {exc}"
 
 
+def _occ_selected_world_shapes(context, occ):
+    """Bake selected OCC objects' matrix_world into their shapes.
+    Returns (list_of_shape_ids, cleanup_fn). Each shape_id is a NEW
+    registry entry with world-space geometry. Call cleanup_fn() to delete
+    the temporary shapes when done."""
+    temp_ids = []
+    objs = []
+    for obj in context.selected_objects:
+        if obj.get("hippo_kernel") != "occ":
+            continue
+        sid = int(obj.get("hippo_occ_shape_id", -1))
+        if sid < 0 or not occ.has_shape(sid):
+            continue
+        mw = obj.matrix_world
+        mat = [
+            mw[0][0], mw[0][1], mw[0][2], mw[0][3],
+            mw[1][0], mw[1][1], mw[1][2], mw[1][3],
+            mw[2][0], mw[2][1], mw[2][2], mw[2][3],
+            mw[3][0], mw[3][1], mw[3][2], mw[3][3]
+        ]
+        ws_id = occ.transform_shape(sid, mat)
+        temp_ids.append(ws_id)
+        objs.append(obj)
+
+    def cleanup():
+        for tid in temp_ids:
+            try:
+                occ.delete_shape(tid)
+            except Exception:
+                pass
+    return temp_ids, cleanup, objs
+
+
 def _occ_selected_shape_ids_from_any(context, occ, min_count=1, max_count=None):
     """Collect shape_ids from selection. Accepts both OCC objects and Blender CURVE objects.
     Converts Blender curves to OCC wires automatically. Returns (ids, err_msg)."""
@@ -5227,36 +5260,89 @@ def _occ_selected_shape_ids_from_any(context, occ, min_count=1, max_count=None):
     return ids, None
 
 
+def _occ_selected_shape_ids_from_any_world(context, occ, min_count=1, max_count=None):
+    """Like _occ_selected_shape_ids_from_any, but OCC objects are baked into
+    world-space shapes (new registry entries). Returns (ids, cleanup_fn)."""
+    ids = []
+    temp_ids = []
+    for obj in context.selected_objects:
+        if obj.get("hippo_kernel") == "occ":
+            sid = int(obj.get("hippo_occ_shape_id", -1))
+            if sid < 0 or not occ.has_shape(sid):
+                continue
+            mw = obj.matrix_world
+            mat = [
+                mw[0][0], mw[0][1], mw[0][2], mw[0][3],
+                mw[1][0], mw[1][1], mw[1][2], mw[1][3],
+                mw[2][0], mw[2][1], mw[2][2], mw[2][3],
+                mw[3][0], mw[3][1], mw[3][2], mw[3][3]
+            ]
+            ws_id = occ.transform_shape(sid, mat)
+            ids.append(ws_id)
+            temp_ids.append(ws_id)
+        elif obj.type == "CURVE":
+            tid, err = _occ_blender_curve_to_wire(obj, occ)
+            if err:
+                # can't return error here easily; just skip
+                continue
+            ids.append(tid)
+    if len(ids) < min_count:
+        for tid in temp_ids:
+            try:
+                occ.delete_shape(tid)
+            except Exception:
+                pass
+        return None, lambda: None, f"Select at least {min_count} curve or OCC object(s)."
+    if max_count is not None and len(ids) > max_count:
+        for tid in temp_ids:
+            try:
+                occ.delete_shape(tid)
+            except Exception:
+                pass
+        return None, lambda: None, f"Select at most {max_count} object(s)."
+
+    def cleanup():
+        for tid in temp_ids:
+            try:
+                occ.delete_shape(tid)
+            except Exception:
+                pass
+    return ids, cleanup, None
+
+
 # ---------------------------------------------------------------------------
 # OCC Surface / Boolean / Trim command runners
 # ---------------------------------------------------------------------------
 
 def run_occ_loft_command(context):
-    """OCC Loft through selected curves (Blender or OCC)."""
+    """OCC Loft through selected curves / OCC objects in world-space."""
     try:
         occ = hippo_load_occ_core()
     except Exception as exc:
         return False, f"OCC core not available: {exc}"
-    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=2)
+    ids, cleanup, err = _occ_selected_shape_ids_from_any_world(context, occ, min_count=2)
     if err:
         return False, err
     try:
         loft_id = occ.occ_loft(ids, closed=False, solid=False)
         data = occ.remesh_shape(loft_id, 0.1)
-        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Loft", data)
+        cleanup()
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Loft", data,
+                                           location=Vector((0.0, 0.0, 0.0)))
         obj["hippo_occ_type"] = "loft"
         return True, f"Created OCC loft (shape_id={loft_id})."
     except Exception as exc:
+        cleanup()
         return False, f"OCC Loft failed: {exc}"
 
 
 def run_occ_revolve_command(context):
-    """OCC Revolve selected profile around the active revolve axis."""
+    """OCC Revolve selected profile around the active revolve axis (world-space)."""
     try:
         occ = hippo_load_occ_core()
     except Exception as exc:
         return False, f"OCC core not available: {exc}"
-    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=1)
+    ids, cleanup, err = _occ_selected_shape_ids_from_any_world(context, occ, min_count=1)
     if err:
         return False, err
     profile_id = ids[0]
@@ -5271,20 +5357,23 @@ def run_occ_revolve_command(context):
     try:
         rev_id = occ.occ_revolve(profile_id, origin, direction, angle)
         data = occ.remesh_shape(rev_id, 0.1)
-        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Revolve", data)
+        cleanup()
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Revolve", data,
+                                           location=Vector((0.0, 0.0, 0.0)))
         obj["hippo_occ_type"] = "revolve"
         return True, f"Created OCC revolve (shape_id={rev_id})."
     except Exception as exc:
+        cleanup()
         return False, f"OCC Revolve failed: {exc}"
 
 
 def run_occ_sweep1_command(context):
-    """OCC Sweep1: rail = first selected, profile = second selected."""
+    """OCC Sweep1: rail = first selected, profile = second selected (world-space)."""
     try:
         occ = hippo_load_occ_core()
     except Exception as exc:
         return False, f"OCC core not available: {exc}"
-    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=2)
+    ids, cleanup, err = _occ_selected_shape_ids_from_any_world(context, occ, min_count=2)
     if err:
         return False, err
     rail_id = ids[0]
@@ -5292,128 +5381,158 @@ def run_occ_sweep1_command(context):
     try:
         sweep_id = occ.occ_sweep1(rail_id, profile_id, solid=False)
         data = occ.remesh_shape(sweep_id, 0.1)
-        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Sweep1", data)
+        cleanup()
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Sweep1", data,
+                                           location=Vector((0.0, 0.0, 0.0)))
         obj["hippo_occ_type"] = "sweep1"
         return True, f"Created OCC Sweep1 (shape_id={sweep_id})."
     except Exception as exc:
+        cleanup()
         return False, f"OCC Sweep1 failed: {exc}"
 
 
 def run_occ_planarsrf_command(context):
-    """OCC PlanarSrf from selected closed wire/curve."""
+    """OCC PlanarSrf from selected closed wire/curve (world-space)."""
     try:
         occ = hippo_load_occ_core()
     except Exception as exc:
         return False, f"OCC core not available: {exc}"
-    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=1)
+    ids, cleanup, err = _occ_selected_shape_ids_from_any_world(context, occ, min_count=1)
     if err:
         return False, err
     try:
         face_id = occ.occ_planar_srf(ids[0])
         data = occ.remesh_shape(face_id, 0.1)
-        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_PlanarSrf", data)
+        cleanup()
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_PlanarSrf", data,
+                                           location=Vector((0.0, 0.0, 0.0)))
         obj["hippo_occ_type"] = "planarsrf"
         return True, f"Created OCC PlanarSrf (shape_id={face_id})."
     except Exception as exc:
+        cleanup()
         return False, f"OCC PlanarSrf failed: {exc}"
 
 
 def run_occ_edgesrf_command(context):
-    """OCC EdgeSrf from 2-4 selected curves/edges."""
+    """OCC EdgeSrf from 2-4 selected curves/edges (world-space)."""
     try:
         occ = hippo_load_occ_core()
     except Exception as exc:
         return False, f"OCC core not available: {exc}"
-    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=2, max_count=4)
+    ids, cleanup, err = _occ_selected_shape_ids_from_any_world(context, occ, min_count=2, max_count=4)
     if err:
         return False, err
     try:
         face_id = occ.occ_edge_srf(ids, continuity=1)
         data = occ.remesh_shape(face_id, 0.1)
-        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_EdgeSrf", data)
+        cleanup()
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_EdgeSrf", data,
+                                           location=Vector((0.0, 0.0, 0.0)))
         obj["hippo_occ_type"] = "edgesrf"
         return True, f"Created OCC EdgeSrf (shape_id={face_id})."
     except Exception as exc:
+        cleanup()
         return False, f"OCC EdgeSrf failed: {exc}"
 
 
+# ---------------------------------------------------------------------------
+# OCC Surface / Boolean / Trim command runners
+# ---------------------------------------------------------------------------
+
 def run_occ_boolean_fuse_command(context):
-    """OCC Boolean Union (Fuse) on selected objects."""
+    """OCC Boolean Union (Fuse) on selected objects in world-space."""
     try:
         occ = hippo_load_occ_core()
     except Exception as exc:
         return False, f"OCC core not available: {exc}"
-    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=2)
-    if err:
-        return False, err
+    ws_ids, cleanup, _objs = _occ_selected_world_shapes(context, occ)
+    if len(ws_ids) < 2:
+        cleanup()
+        return False, "Select at least 2 OCC objects."
     try:
-        fuse_id = occ.occ_boolean_fuse(ids)
+        fuse_id = occ.occ_boolean_fuse(ws_ids)
         data = occ.remesh_shape(fuse_id, 0.1)
-        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_BooleanFuse", data)
+        cleanup()  # delete temporary world-space shapes
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_BooleanFuse", data,
+                                           location=Vector((0.0, 0.0, 0.0)))
         obj["hippo_occ_type"] = "booleanfuse"
         return True, f"Created OCC Boolean Fuse (shape_id={fuse_id})."
     except Exception as exc:
+        cleanup()
         return False, f"OCC Boolean Fuse failed: {exc}"
 
 
 def run_occ_boolean_cut_command(context):
-    """OCC Boolean Difference (Cut): base = first selected, tools = rest."""
+    """OCC Boolean Difference (Cut): base = first selected, tools = rest, in world-space."""
     try:
         occ = hippo_load_occ_core()
     except Exception as exc:
         return False, f"OCC core not available: {exc}"
-    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=2)
-    if err:
-        return False, err
-    base_id = ids[0]
-    tool_ids = ids[1:]
+    ws_ids, cleanup, _objs = _occ_selected_world_shapes(context, occ)
+    if len(ws_ids) < 2:
+        cleanup()
+        return False, "Select at least 2 OCC objects (base + tool)."
+    base_id = ws_ids[0]
+    tool_ids = ws_ids[1:]
     try:
         cut_id = occ.occ_boolean_cut(base_id, tool_ids)
         data = occ.remesh_shape(cut_id, 0.1)
-        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_BooleanCut", data)
+        cleanup()
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_BooleanCut", data,
+                                           location=Vector((0.0, 0.0, 0.0)))
         obj["hippo_occ_type"] = "booleancut"
         return True, f"Created OCC Boolean Cut (shape_id={cut_id})."
     except Exception as exc:
+        cleanup()
         return False, f"OCC Boolean Cut failed: {exc}"
 
 
 def run_occ_boolean_common_command(context):
-    """OCC Boolean Intersection (Common) of two selected objects."""
+    """OCC Boolean Intersection (Common) of two selected objects in world-space."""
     try:
         occ = hippo_load_occ_core()
     except Exception as exc:
         return False, f"OCC core not available: {exc}"
-    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=2, max_count=2)
-    if err:
-        return False, err
+    ws_ids, cleanup, _objs = _occ_selected_world_shapes(context, occ)
+    if len(ws_ids) < 2:
+        cleanup()
+        return False, "Select exactly 2 OCC objects."
     try:
-        common_id = occ.occ_boolean_common(ids[0], ids[1])
+        common_id = occ.occ_boolean_common(ws_ids[0], ws_ids[1])
         data = occ.remesh_shape(common_id, 0.1)
-        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_BooleanCommon", data)
+        cleanup()
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_BooleanCommon", data,
+                                           location=Vector((0.0, 0.0, 0.0)))
         obj["hippo_occ_type"] = "booleancommon"
         return True, f"Created OCC Boolean Common (shape_id={common_id})."
     except Exception as exc:
+        cleanup()
         return False, f"OCC Boolean Common failed: {exc}"
 
 
 def run_occ_split_command(context):
-    """OCC Split surface by cutter. Returns the first piece."""
+    """OCC Split surface by cutter in world-space. Returns the first piece."""
     try:
         occ = hippo_load_occ_core()
     except Exception as exc:
         return False, f"OCC core not available: {exc}"
-    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=2, max_count=2)
-    if err:
-        return False, err
+    ws_ids, cleanup, _objs = _occ_selected_world_shapes(context, occ)
+    if len(ws_ids) < 2:
+        cleanup()
+        return False, "Select exactly 2 OCC objects (surface + cutter)."
     try:
-        piece_ids = occ.occ_split(ids[0], ids[1])
+        piece_ids = occ.occ_split(ws_ids[0], ws_ids[1])
         if not piece_ids:
+            cleanup()
             return False, "OCC Split returned no pieces."
         data = occ.remesh_shape(piece_ids[0], 0.1)
-        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Split", data)
+        cleanup()
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Split", data,
+                                           location=Vector((0.0, 0.0, 0.0)))
         obj["hippo_occ_type"] = "split"
         return True, f"Created OCC Split piece (shape_id={piece_ids[0]})."
     except Exception as exc:
+        cleanup()
         return False, f"OCC Split failed: {exc}"
 
 
@@ -5915,6 +6034,9 @@ def hippo_occ_toggle_points(context, obj=None):
 def hippo_occ_mesh_replace(obj, data):
     if obj is None or obj.type != "MESH":
         return
+    # Make mesh single-user so linked duplicates don't share geometry updates
+    if obj.data.users > 1:
+        obj.data = obj.data.copy()
     mesh = obj.data
     mesh.clear_geometry()
     mesh.from_pydata(data.get("vertices", []), [], data.get("faces", []))

@@ -5,6 +5,7 @@
 
 #include <BRepBuilderAPI_Transform.hxx>
 #include <gp_Trsf.hxx>
+#include <gp_Vec.hxx>
 
 static std::map<int, TopoDS_Shape> g_shapes;
 static int g_next_shape_id = 1;
@@ -43,11 +44,18 @@ void delete_shape(int shape_id) {
 int transform_shape(int shape_id, const std::array<double, 16>& matrix) {
     TopoDS_Shape shape = get_shape(shape_id);
     gp_Trsf trsf;
+    // Row-major 4x4 matrix: the last column is translation.
     trsf.SetValues(
-        matrix[0], matrix[1], matrix[2], matrix[3],
-        matrix[4], matrix[5], matrix[6], matrix[7],
-        matrix[8], matrix[9], matrix[10], matrix[11]
+        matrix[0],  matrix[1],  matrix[2],  matrix[3],
+        matrix[4],  matrix[5],  matrix[6],  matrix[7],
+        matrix[8],  matrix[9],  matrix[10], matrix[11]
     );
+    // gp_Trsf.SetValues ignores the last column (translation) in this overload.
+    // We must set translation explicitly from the 4th column.
+    gp_Vec translation(matrix[3], matrix[7], matrix[11]);
+    if (translation.Magnitude() > 1e-12) {
+        trsf.SetTranslationPart(translation);
+    }
     BRepBuilderAPI_Transform transform(shape, trsf, true);
     if (!transform.IsDone()) {
         return shape_id;
