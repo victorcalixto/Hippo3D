@@ -406,6 +406,18 @@ def run_simple_cad_command(context, cmd):
     if compact in {"occsplit", "occ_split", "occspl", "occ_spl", "occsplitter"}:
         return run_occ_split_command(context)
 
+    if compact in {"occrebuild", "occ_rebuild", "rebuildocc", "rebuild_occ"}:
+        obj = hippo_occ_active_or_parent(context)
+        if obj is None:
+            return False, "Select an OCC object first."
+        return hippo_occ_history_rebuild(context, obj)
+
+    if compact in {"occshowsources", "occ_show_sources", "showsources", "show_sources"}:
+        obj = hippo_occ_active_or_parent(context)
+        if obj is None:
+            return False, "Select an OCC object first."
+        return hippo_occ_history_show_sources(context, obj)
+
     parts = raw.split()
     if parts and parts[0] in {"stepout", "step_out", "exportstep", "export_step"}:
         return _run_occ_export_step_command(context, raw)
@@ -5439,13 +5451,183 @@ def run_occ_edgesrf_command(context):
 # OCC Surface / Boolean / Trim command runners
 # ---------------------------------------------------------------------------
 
+def hippo_occ_boolean_history(context, result_obj, source_objs, operation_name):
+    """Build FreeCAD-style boolean history tree for result_obj.
+
+    Structure:
+      Hippo3D_Booleans (collection, child of scene)
+        └── Boolean_\u003coperation\u003e_\u003cresult_name\u003e (collection)
+              ├── result_obj  (the visible boolean result)
+              └── Sources     (sub-collection, hidden from viewport)
+                    ├── source_obj_1 (hidden)
+                    ├── source_obj_2 (hidden)
+                    └── ...
+
+    Source objects are unlinked from their old collections and linked only
+    into the Sources sub-collection (and hidden).  Their original scene
+    visibility is lost, but they remain in the history tree.
+    """
+    scene = context.scene
+    scene_coll = scene.collection
+
+    # Top-level booleans collection
+    top = bpy.data.collections.get("Hippo3D_Booleans")
+    if top is None:
+        top = bpy.data.collections.new("Hippo3D_Booleans")
+        scene_coll.children.link(top)
+
+    # Operation collection for this specific boolean
+    safe_op = operation_name.replace(" ", "_")
+    coll_name = f"Boolean_{safe_op}_{result_obj.name}"
+    op_coll = bpy.data.collections.new(coll_name)
+    top.children.link(op_coll)
+
+    # Move result object into operation collection
+    for pcoll in result_obj.users_collection:
+        pcoll.objects.unlink(result_obj)
+    op_coll.objects.link(result_obj)
+
+    # Sources sub-collection (hidden)
+    src_coll = bpy.data.collections.new("Sources")
+    op_coll.children.link(src_coll)
+
+    # Store refs on result for traceback
+    result_obj["hippo_occ_history_op"] = operation_name
+    result_obj["hippo_occ_history_sources"] = [o.name for o in source_objs]
+
+    for src in source_objs:
+        for pcoll in list(src.users_collection):
+            pcoll.objects.unlink(src)
+        src_coll.objects.link(src)
+        src.hide_set(True)
+        src.select_set(False)
+
+    # Store shape IDs of sources for future rebuild support
+    source_shape_ids = []
+    for src in source_objs:
+        sid = int(src.get("hippo_occ_shape_id", -1))
+        if sid >= 0:
+            source_shape_ids.append(sid)
+    if source_shape_ids:
+        result_obj["hippo_occ_history_source_shape_ids"] = source_shape_ids
+
+    return op_coll
+
+
+def hippo_occ_history_show_sources(context, obj):
+    """Toggle visibility of source objects for a boolean result.
+    Sources are the original objects that were used to create this boolean."""
+    if not hippo_occ_is_object(obj):
+        return False, "Not an OCC object."
+    src_names = obj.get("hippo_occ_history_sources", [])
+    if not src_names:
+        return False, "No history sources stored for this object."
+    shown = 0
+    for name in src_names:
+        src = bpy.data.objects.get(name)
+        if src is None:
+            continue
+        src.hide_set(not src.hide_get())
+        if not src.hide_get():
+            shown += 1
+    return True, f"Toggled {len(src_names)} source(s); {shown} now visible."
+
+
+def hippo_occ_history_rebuild(context, obj):
+    """Rebuild an OCC boolean object from its stored history sources.
+    Useful when the user wants to recompute after editing a source."""
+    if not hippo_occ_is_object(obj):
+        return False, "Not an OCC object."
+    op = obj.get("hippo_occ_history_op", "")
+    src_names = obj.get("hippo_occ_history_sources", [])
+    if not op or not src_names:
+        return False, "No history stored for this object."
+
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+
+    # Gather source objects and bake them to world space
+    source_objs = []
+    ws_ids = []
+    for name in src_names:
+        src = bpy.data.objects.get(name)
+        if src is None or not hippo_occ_is_object(src):
+            continue
+        sid = int(src.get("hippo_occ_shape_id", -1))
+        if sid < 0 or not occ.has_shape(sid):
+            continue
+        mw = src.matrix_world
+        mat = [
+            mw[0][0], mw[0][1], mw[0][2], mw[0][3],
+            mw[1][0], mw[1][1], mw[1][2], mw[1][3],
+            mw[2][0], mw[2][1], mw[2][2], mw[2][3],
+            mw[3][0], mw[3][1], mw[3][2], mw[3][3]
+        ]
+        ws_id = occ.transform_shape(sid, mat)
+        ws_ids.append(ws_id)
+        source_objs.append(src)
+
+    if len(ws_ids) < 2:
+        for tid in ws_ids:
+            try:
+                occ.delete_shape(tid)
+            except Exception:
+                pass
+        return False, "Not enough valid source objects to rebuild."
+
+    try:
+        if op in {"booleanfuse", "occunion", "fuse", "union"}:
+            new_sid = occ.occ_boolean_fuse(ws_ids)
+        elif op in {"booleancut", "occdifference", "cut", "difference"}:
+            new_sid = occ.occ_boolean_cut(ws_ids[0], ws_ids[1:])
+        elif op in {"booleancommon", "occintersection", "common", "intersection"}:
+            new_sid = occ.occ_boolean_common(ws_ids[0], ws_ids[1])
+        elif op in {"split", "occsplit"}:
+            piece_ids = occ.occ_split(ws_ids[0], ws_ids[1])
+            if not piece_ids:
+                raise RuntimeError("Split returned no pieces.")
+            new_sid = piece_ids[0]
+        else:
+            raise RuntimeError(f"Unknown operation: {op}")
+
+        data = occ.remesh_shape(new_sid, 0.1)
+        for tid in ws_ids:
+            try:
+                occ.delete_shape(tid)
+            except Exception:
+                pass
+
+        old_sid = int(obj.get("hippo_occ_shape_id", -1))
+        hippo_occ_mesh_replace(obj, data)
+        if old_sid >= 0 and occ.has_shape(old_sid):
+            try:
+                occ.delete_shape(old_sid)
+            except Exception:
+                pass
+        obj["hippo_occ_shape_id"] = new_sid
+        return True, f"Rebuilt {op} from {len(source_objs)} source(s)."
+    except Exception as exc:
+        for tid in ws_ids:
+            try:
+                occ.delete_shape(tid)
+            except Exception:
+                pass
+        return False, f"Rebuild failed: {exc}"
+
+
+# ---------------------------------------------------------------------------
+# OCC Surface / Boolean / Trim command runners
+# ---------------------------------------------------------------------------
+
 def run_occ_boolean_fuse_command(context):
     """OCC Boolean Union (Fuse) on selected objects in world-space."""
     try:
         occ = hippo_load_occ_core()
     except Exception as exc:
         return False, f"OCC core not available: {exc}"
-    ws_ids, cleanup, _objs = _occ_selected_world_shapes(context, occ)
+    ws_ids, cleanup, source_objs = _occ_selected_world_shapes(context, occ)
     if len(ws_ids) < 2:
         cleanup()
         return False, "Select at least 2 OCC objects."
@@ -5456,6 +5638,7 @@ def run_occ_boolean_fuse_command(context):
         obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_BooleanFuse", data,
                                            location=Vector((0.0, 0.0, 0.0)))
         obj["hippo_occ_type"] = "booleanfuse"
+        hippo_occ_boolean_history(context, obj, source_objs, "fuse")
         return True, f"Created OCC Boolean Fuse (shape_id={fuse_id})."
     except Exception as exc:
         cleanup()
@@ -5468,7 +5651,7 @@ def run_occ_boolean_cut_command(context):
         occ = hippo_load_occ_core()
     except Exception as exc:
         return False, f"OCC core not available: {exc}"
-    ws_ids, cleanup, _objs = _occ_selected_world_shapes(context, occ)
+    ws_ids, cleanup, source_objs = _occ_selected_world_shapes(context, occ)
     if len(ws_ids) < 2:
         cleanup()
         return False, "Select at least 2 OCC objects (base + tool)."
@@ -5481,6 +5664,7 @@ def run_occ_boolean_cut_command(context):
         obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_BooleanCut", data,
                                            location=Vector((0.0, 0.0, 0.0)))
         obj["hippo_occ_type"] = "booleancut"
+        hippo_occ_boolean_history(context, obj, source_objs, "cut")
         return True, f"Created OCC Boolean Cut (shape_id={cut_id})."
     except Exception as exc:
         cleanup()
@@ -5493,7 +5677,7 @@ def run_occ_boolean_common_command(context):
         occ = hippo_load_occ_core()
     except Exception as exc:
         return False, f"OCC core not available: {exc}"
-    ws_ids, cleanup, _objs = _occ_selected_world_shapes(context, occ)
+    ws_ids, cleanup, source_objs = _occ_selected_world_shapes(context, occ)
     if len(ws_ids) < 2:
         cleanup()
         return False, "Select exactly 2 OCC objects."
@@ -5504,6 +5688,7 @@ def run_occ_boolean_common_command(context):
         obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_BooleanCommon", data,
                                            location=Vector((0.0, 0.0, 0.0)))
         obj["hippo_occ_type"] = "booleancommon"
+        hippo_occ_boolean_history(context, obj, source_objs, "common")
         return True, f"Created OCC Boolean Common (shape_id={common_id})."
     except Exception as exc:
         cleanup()
@@ -5516,7 +5701,7 @@ def run_occ_split_command(context):
         occ = hippo_load_occ_core()
     except Exception as exc:
         return False, f"OCC core not available: {exc}"
-    ws_ids, cleanup, _objs = _occ_selected_world_shapes(context, occ)
+    ws_ids, cleanup, source_objs = _occ_selected_world_shapes(context, occ)
     if len(ws_ids) < 2:
         cleanup()
         return False, "Select exactly 2 OCC objects (surface + cutter)."
@@ -5530,6 +5715,7 @@ def run_occ_split_command(context):
         obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Split", data,
                                            location=Vector((0.0, 0.0, 0.0)))
         obj["hippo_occ_type"] = "split"
+        hippo_occ_boolean_history(context, obj, source_objs, "split")
         return True, f"Created OCC Split piece (shape_id={piece_ids[0]})."
     except Exception as exc:
         cleanup()
