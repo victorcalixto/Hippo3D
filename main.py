@@ -406,6 +406,19 @@ def run_simple_cad_command(context, cmd):
     if compact in {"occsplit", "occ_split", "occspl", "occ_spl"}:
         return run_occ_split_command(context)
 
+    parts = raw.split()
+    if parts and parts[0] in {"stepout", "step_out", "exportstep", "export_step"}:
+        return _run_occ_export_step_command(context, raw)
+
+    if parts and parts[0] in {"stepin", "step_in", "importstep", "import_step"}:
+        return _run_occ_import_step_command(context, raw)
+
+    if parts and parts[0] in {"3dmout", "3dm_out", "export3dm", "export_3dm"}:
+        return _run_occ_export_3dm_command(context, raw)
+
+    if parts and parts[0] in {"3dmin", "3dm_in", "import3dm", "import_3dm"}:
+        return _run_occ_import_3dm_command(context, raw)
+
     if compact in {"railrevolve"}:
         return hippo_command_not_ready("RailRevolve")
 
@@ -5402,6 +5415,117 @@ def run_occ_split_command(context):
         return True, f"Created OCC Split piece (shape_id={piece_ids[0]})."
     except Exception as exc:
         return False, f"OCC Split failed: {exc}"
+
+
+def run_occ_export_step_command(context):
+    """Export selected OCC objects to STEP file."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=1)
+    if err:
+        return False, err
+    # filepath comes from the typed command (passed in via cmd)
+    # The caller must pass the full raw text so we parse it here.
+    # This function is called from run_simple_cad_command which has the full text.
+    return False, "Usage: stepout /path/to/file.step"
+
+
+def _run_occ_export_step_command(context, cmd):
+    """Internal: Export selected OCC objects to STEP file."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=1)
+    if err:
+        return False, err
+    parts = cmd.strip().split(maxsplit=1)
+    filepath = parts[1] if len(parts) > 1 else None
+    if not filepath:
+        return False, "Usage: stepout /path/to/file.step"
+    try:
+        if len(ids) == 1:
+            ok, msg = occ.export_step(ids[0], filepath)
+        else:
+            ok, msg = occ.export_step_multi(ids, filepath)
+        return ok, msg
+    except Exception as exc:
+        return False, f"STEP export failed: {exc}"
+
+
+def _run_occ_import_step_command(context, cmd):
+    """Internal: Import shapes from STEP file."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    parts = cmd.strip().split(maxsplit=1)
+    filepath = parts[1] if len(parts) > 1 else None
+    if not filepath:
+        return False, "Usage: stepin /path/to/file.step"
+    try:
+        shape_ids = occ.import_step(filepath)
+        if not shape_ids:
+            return False, "No shapes imported from STEP."
+        imported = []
+        for sid in shape_ids:
+            data = occ.remesh_shape(sid, 0.1)
+            obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_STEP", data)
+            obj["hippo_occ_type"] = "step"
+            imported.append(obj.name)
+        return True, f"Imported {len(imported)} shape(s) from STEP: {filepath}"
+    except Exception as exc:
+        return False, f"STEP import failed: {exc}"
+
+
+def _run_occ_export_3dm_command(context, cmd):
+    """Internal: Export selected OCC objects to .3dm file."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=1)
+    if err:
+        return False, err
+    parts = cmd.strip().split(maxsplit=1)
+    filepath = parts[1] if len(parts) > 1 else None
+    if not filepath:
+        return False, "Usage: 3dmout /path/to/file.3dm"
+    try:
+        if len(ids) == 1:
+            ok, msg = occ.export_3dm(ids[0], filepath)
+        else:
+            ok, msg = occ.export_3dm_multi(ids, filepath)
+        return ok, msg
+    except Exception as exc:
+        return False, f"3DM export failed: {exc}"
+
+
+def _run_occ_import_3dm_command(context, cmd):
+    """Internal: Import shapes from .3dm file."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    parts = cmd.strip().split(maxsplit=1)
+    filepath = parts[1] if len(parts) > 1 else None
+    if not filepath:
+        return False, "Usage: 3dmin /path/to/file.3dm"
+    try:
+        result = occ.import_3dm(filepath)
+        if not result:
+            return False, "No shapes imported from 3DM."
+        imported = []
+        for sid, kind in result:
+            data = occ.remesh_shape(sid, 0.1)
+            obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_3DM", data)
+            obj["hippo_occ_type"] = "3dm"
+            imported.append((obj.name, kind))
+        return True, f"Imported {len(imported)} shape(s) from 3DM: {filepath}"
+    except Exception as exc:
+        return False, f"3DM import failed: {exc}"
 
 
 # ---------------------------------------------------------------------------
