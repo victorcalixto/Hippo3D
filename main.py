@@ -394,16 +394,16 @@ def run_simple_cad_command(context, cmd):
     if compact in {"occedgesrf", "occ_edgesrf", "occedge", "occ_edge"}:
         return run_occ_edgesrf_command(context)
 
-    if compact in {"occbooleanfuse", "occ_boolean_fuse", "occfuse", "occ_fuse"}:
+    if compact in {"occbooleanfuse", "occ_boolean_fuse", "occfuse", "occ_fuse", "occunion"}:
         return run_occ_boolean_fuse_command(context)
 
-    if compact in {"occbooleancut", "occ_boolean_cut", "occcut", "occ_cut"}:
+    if compact in {"occbooleancut", "occ_boolean_cut", "occcut", "occ_cut", "occdifference"}:
         return run_occ_boolean_cut_command(context)
 
-    if compact in {"occbooleancommon", "occ_boolean_common", "occcommon", "occ_common"}:
+    if compact in {"occbooleancommon", "occ_boolean_common", "occcommon", "occ_common", "occintersection"}:
         return run_occ_boolean_common_command(context)
 
-    if compact in {"occsplit", "occ_split", "occspl", "occ_spl"}:
+    if compact in {"occsplit", "occ_split", "occspl", "occ_spl", "occsplitter"}:
         return run_occ_split_command(context)
 
     parts = raw.split()
