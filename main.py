@@ -373,6 +373,39 @@ def run_simple_cad_command(context, cmd):
     if compact in {"arc"}:
         return False, "Arc is interactive. Type arc, then pick 3 points."
 
+    if compact in {"pointson", "occpointson", "points_on"}:
+        return hippo_occ_points_on_command(context)
+
+    if compact in {"pointsoff", "occpointsoff", "points_off"}:
+        return hippo_occ_points_off_command(context)
+
+    if compact in {"occloft", "occ_loft", "occlo", "occ_lo"}:
+        return run_occ_loft_command(context)
+
+    if compact in {"occrevolve", "occ_revolve", "occrev", "occ_rev"}:
+        return run_occ_revolve_command(context)
+
+    if compact in {"occsweep1", "occ_sweep1", "occsweep", "occ_sweep"}:
+        return run_occ_sweep1_command(context)
+
+    if compact in {"occplanarsrf", "occ_planarsrf", "occplanar", "occ_planar"}:
+        return run_occ_planarsrf_command(context)
+
+    if compact in {"occedgesrf", "occ_edgesrf", "occedge", "occ_edge"}:
+        return run_occ_edgesrf_command(context)
+
+    if compact in {"occbooleanfuse", "occ_boolean_fuse", "occfuse", "occ_fuse"}:
+        return run_occ_boolean_fuse_command(context)
+
+    if compact in {"occbooleancut", "occ_boolean_cut", "occcut", "occ_cut"}:
+        return run_occ_boolean_cut_command(context)
+
+    if compact in {"occbooleancommon", "occ_boolean_common", "occcommon", "occ_common"}:
+        return run_occ_boolean_common_command(context)
+
+    if compact in {"occsplit", "occ_split", "occspl", "occ_spl"}:
+        return run_occ_split_command(context)
+
     if compact in {"railrevolve"}:
         return hippo_command_not_ready("RailRevolve")
 
@@ -5094,6 +5127,411 @@ class HIPPO_OT_OCCTorus(Operator):
         return {"FINISHED"}
 
 
+# ---------------------------------------------------------------------------
+# OCC Curve / Wire creation helpers
+# ---------------------------------------------------------------------------
+
+def _occ_blender_curve_to_wire(obj, occ):
+    """Convert a Blender CURVE object's first spline to an OCC wire shape_id.
+    Returns (shape_id, msg) where msg is None on success."""
+    if not obj or obj.type != "CURVE" or not obj.data.splines:
+        return None, "Not a valid curve object."
+    spline = obj.data.splines[0]
+    try:
+        if spline.type in {"NURBS", "BEZIER"}:
+            cvs = []
+            if spline.type == "NURBS":
+                for pt in spline.points:
+                    cvs.append((pt.co[0], pt.co[1], pt.co[2], pt.co[3]))
+            else:
+                for bp in spline.bezier_points:
+                    cvs.append((bp.co.x, bp.co.y, bp.co.z, 1.0))
+            n = len(cvs)
+            if n < 2:
+                return None, "Curve has too few control points."
+            degree = max(1, int(getattr(spline, "order_u", 2)) - 1)
+            degree = min(degree, n - 1)
+            closed = getattr(spline, "use_cyclic_u", False)
+            if closed and degree >= 1 and n > degree:
+                cvs = cvs + cvs[:degree]
+                n = len(cvs)
+                periodic = False
+            else:
+                periodic = False
+            unique_count = n - degree + 1
+            if unique_count < 2:
+                return None, f"Cannot build B-spline: {n} pts, degree {degree}."
+            knots = [float(i) for i in range(unique_count)]
+            internal = max(0, n - degree - 1)
+            mults = [degree + 1] + [1] * internal + [degree + 1]
+            shape_id = occ.make_nurbs_curve(cvs, knots, mults, degree, periodic)
+            mw = obj.matrix_world
+            mat = [
+                mw[0][0], mw[0][1], mw[0][2], mw[0][3],
+                mw[1][0], mw[1][1], mw[1][2], mw[1][3],
+                mw[2][0], mw[2][1], mw[2][2], mw[2][3],
+                mw[3][0], mw[3][1], mw[3][2], mw[3][3]
+            ]
+            tid = occ.transform_shape(shape_id, mat)
+            occ.delete_shape(shape_id)
+            return tid, None
+        elif spline.type == "POLY":
+            pts3d = []
+            for pt in spline.points:
+                p = obj.matrix_world @ Vector((pt.co[0], pt.co[1], pt.co[2]))
+                pts3d.append((p.x, p.y, p.z))
+            if len(pts3d) < 2:
+                return None, "Polyline needs at least 2 points."
+            closed = getattr(spline, "use_cyclic_u", False)
+            shape_id = occ.make_polyline_wire(pts3d, closed)
+            return shape_id, None
+        else:
+            return None, f"Unsupported spline type: {spline.type}"
+    except Exception as exc:
+        return None, f"Curve conversion failed: {exc}"
+
+
+def _occ_selected_shape_ids_from_any(context, occ, min_count=1, max_count=None):
+    """Collect shape_ids from selection. Accepts both OCC objects and Blender CURVE objects.
+    Converts Blender curves to OCC wires automatically. Returns (ids, err_msg)."""
+    ids = []
+    for obj in context.selected_objects:
+        if obj.get("hippo_kernel") == "occ":
+            sid = int(obj.get("hippo_occ_shape_id", -1))
+            if sid >= 0 and occ.has_shape(sid):
+                ids.append(sid)
+            else:
+                return None, f"OCC shape not found for object '{obj.name}'."
+        elif obj.type == "CURVE":
+            tid, err = _occ_blender_curve_to_wire(obj, occ)
+            if err:
+                return None, f"'{obj.name}': {err}"
+            ids.append(tid)
+    if len(ids) < min_count:
+        return None, f"Select at least {min_count} curve or OCC object(s)."
+    if max_count is not None and len(ids) > max_count:
+        return None, f"Select at most {max_count} object(s)."
+    return ids, None
+
+
+# ---------------------------------------------------------------------------
+# OCC Surface / Boolean / Trim command runners
+# ---------------------------------------------------------------------------
+
+def run_occ_loft_command(context):
+    """OCC Loft through selected curves (Blender or OCC)."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=2)
+    if err:
+        return False, err
+    try:
+        loft_id = occ.occ_loft(ids, closed=False, solid=False)
+        data = occ.remesh_shape(loft_id, 0.1)
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Loft", data)
+        obj["hippo_occ_type"] = "loft"
+        return True, f"Created OCC loft (shape_id={loft_id})."
+    except Exception as exc:
+        return False, f"OCC Loft failed: {exc}"
+
+
+def run_occ_revolve_command(context):
+    """OCC Revolve selected profile around the active revolve axis."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=1)
+    if err:
+        return False, err
+    profile_id = ids[0]
+    axis = getattr(context.scene, "hippo_revolve_axis", None)
+    if axis is None or not hasattr(axis, "__len__") or len(axis) != 2:
+        origin = (0.0, 0.0, 0.0)
+        direction = (0.0, 0.0, 1.0)
+    else:
+        origin = (axis[0].x, axis[0].y, axis[0].z)
+        direction = (axis[1].x, axis[1].y, axis[1].z)
+    angle = float(getattr(context.scene, "cad_revolve_angle", 360.0))
+    try:
+        rev_id = occ.occ_revolve(profile_id, origin, direction, angle)
+        data = occ.remesh_shape(rev_id, 0.1)
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Revolve", data)
+        obj["hippo_occ_type"] = "revolve"
+        return True, f"Created OCC revolve (shape_id={rev_id})."
+    except Exception as exc:
+        return False, f"OCC Revolve failed: {exc}"
+
+
+def run_occ_sweep1_command(context):
+    """OCC Sweep1: rail = first selected, profile = second selected."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=2)
+    if err:
+        return False, err
+    rail_id = ids[0]
+    profile_id = ids[1]
+    try:
+        sweep_id = occ.occ_sweep1(rail_id, profile_id, solid=False)
+        data = occ.remesh_shape(sweep_id, 0.1)
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Sweep1", data)
+        obj["hippo_occ_type"] = "sweep1"
+        return True, f"Created OCC Sweep1 (shape_id={sweep_id})."
+    except Exception as exc:
+        return False, f"OCC Sweep1 failed: {exc}"
+
+
+def run_occ_planarsrf_command(context):
+    """OCC PlanarSrf from selected closed wire/curve."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=1)
+    if err:
+        return False, err
+    try:
+        face_id = occ.occ_planar_srf(ids[0])
+        data = occ.remesh_shape(face_id, 0.1)
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_PlanarSrf", data)
+        obj["hippo_occ_type"] = "planarsrf"
+        return True, f"Created OCC PlanarSrf (shape_id={face_id})."
+    except Exception as exc:
+        return False, f"OCC PlanarSrf failed: {exc}"
+
+
+def run_occ_edgesrf_command(context):
+    """OCC EdgeSrf from 2-4 selected curves/edges."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=2, max_count=4)
+    if err:
+        return False, err
+    try:
+        face_id = occ.occ_edge_srf(ids, continuity=1)
+        data = occ.remesh_shape(face_id, 0.1)
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_EdgeSrf", data)
+        obj["hippo_occ_type"] = "edgesrf"
+        return True, f"Created OCC EdgeSrf (shape_id={face_id})."
+    except Exception as exc:
+        return False, f"OCC EdgeSrf failed: {exc}"
+
+
+def run_occ_boolean_fuse_command(context):
+    """OCC Boolean Union (Fuse) on selected objects."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=2)
+    if err:
+        return False, err
+    try:
+        fuse_id = occ.occ_boolean_fuse(ids)
+        data = occ.remesh_shape(fuse_id, 0.1)
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_BooleanFuse", data)
+        obj["hippo_occ_type"] = "booleanfuse"
+        return True, f"Created OCC Boolean Fuse (shape_id={fuse_id})."
+    except Exception as exc:
+        return False, f"OCC Boolean Fuse failed: {exc}"
+
+
+def run_occ_boolean_cut_command(context):
+    """OCC Boolean Difference (Cut): base = first selected, tools = rest."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=2)
+    if err:
+        return False, err
+    base_id = ids[0]
+    tool_ids = ids[1:]
+    try:
+        cut_id = occ.occ_boolean_cut(base_id, tool_ids)
+        data = occ.remesh_shape(cut_id, 0.1)
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_BooleanCut", data)
+        obj["hippo_occ_type"] = "booleancut"
+        return True, f"Created OCC Boolean Cut (shape_id={cut_id})."
+    except Exception as exc:
+        return False, f"OCC Boolean Cut failed: {exc}"
+
+
+def run_occ_boolean_common_command(context):
+    """OCC Boolean Intersection (Common) of two selected objects."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=2, max_count=2)
+    if err:
+        return False, err
+    try:
+        common_id = occ.occ_boolean_common(ids[0], ids[1])
+        data = occ.remesh_shape(common_id, 0.1)
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_BooleanCommon", data)
+        obj["hippo_occ_type"] = "booleancommon"
+        return True, f"Created OCC Boolean Common (shape_id={common_id})."
+    except Exception as exc:
+        return False, f"OCC Boolean Common failed: {exc}"
+
+
+def run_occ_split_command(context):
+    """OCC Split surface by cutter. Returns the first piece."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=2, max_count=2)
+    if err:
+        return False, err
+    try:
+        piece_ids = occ.occ_split(ids[0], ids[1])
+        if not piece_ids:
+            return False, "OCC Split returned no pieces."
+        data = occ.remesh_shape(piece_ids[0], 0.1)
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Split", data)
+        obj["hippo_occ_type"] = "split"
+        return True, f"Created OCC Split piece (shape_id={piece_ids[0]})."
+    except Exception as exc:
+        return False, f"OCC Split failed: {exc}"
+
+
+# ---------------------------------------------------------------------------
+# OCC Surface / Boolean / Trim operator classes
+# ---------------------------------------------------------------------------
+
+class HIPPO_OT_OCCLoft(Operator):
+    bl_idname = "cad.occ_loft"
+    bl_label = "OCC Loft"
+    bl_description = "Loft through selected curves using OCC BRepOffsetAPI_ThruSections"
+
+    def execute(self, context):
+        ok, msg = run_occ_loft_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
+
+
+class HIPPO_OT_OCCRevolve(Operator):
+    bl_idname = "cad.occ_revolve"
+    bl_label = "OCC Revolve"
+    bl_description = "Revolve selected profile around the active revolve axis"
+
+    def execute(self, context):
+        ok, msg = run_occ_revolve_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
+
+
+class HIPPO_OT_OCCSweep1(Operator):
+    bl_idname = "cad.occ_sweep1"
+    bl_label = "OCC Sweep1"
+    bl_description = "Sweep profile along first selected rail (single rail)"
+
+    def execute(self, context):
+        ok, msg = run_occ_sweep1_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
+
+
+class HIPPO_OT_OCCPlanarSrf(Operator):
+    bl_idname = "cad.occ_planar_srf"
+    bl_label = "OCC PlanarSrf"
+    bl_description = "Create a planar surface from a closed planar wire"
+
+    def execute(self, context):
+        ok, msg = run_occ_planarsrf_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
+
+
+class HIPPO_OT_OCCEdgeSrf(Operator):
+    bl_idname = "cad.occ_edge_srf"
+    bl_label = "OCC EdgeSrf"
+    bl_description = "Create a filling surface from 2-4 boundary curves"
+
+    def execute(self, context):
+        ok, msg = run_occ_edgesrf_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
+
+
+class HIPPO_OT_OCCBooleanFuse(Operator):
+    bl_idname = "cad.occ_boolean_fuse"
+    bl_label = "OCC Boolean Union"
+    bl_description = "Boolean union (fuse) of selected OCC solids/surfaces"
+
+    def execute(self, context):
+        ok, msg = run_occ_boolean_fuse_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
+
+
+class HIPPO_OT_OCCBooleanCut(Operator):
+    bl_idname = "cad.occ_boolean_cut"
+    bl_label = "OCC Boolean Difference"
+    bl_description = "Boolean difference (cut) of base minus tools"
+
+    def execute(self, context):
+        ok, msg = run_occ_boolean_cut_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
+
+
+class HIPPO_OT_OCCBooleanCommon(Operator):
+    bl_idname = "cad.occ_boolean_common"
+    bl_label = "OCC Boolean Intersection"
+    bl_description = "Boolean intersection (common) of two shapes"
+
+    def execute(self, context):
+        ok, msg = run_occ_boolean_common_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
+
+
+class HIPPO_OT_OCCSplit(Operator):
+    bl_idname = "cad.occ_split"
+    bl_label = "OCC Split"
+    bl_description = "Split a surface by a cutter shape"
+
+    def execute(self, context):
+        ok, msg = run_occ_split_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
 
 
 # -----------------------------------------------------------------------------
@@ -5206,6 +5644,12 @@ def hippo_occ_remove_all_handles():
             bpy.data.objects.remove(handle, do_unlink=True)
 
 
+def hippo_occ_surface_cp_in_world(obj, info):
+    """Convert OCC surface CPs (object-local) to world-space handles."""
+    ws = [obj.matrix_world @ Vector(p) for p in info["poles"]]
+    return ws, info["u_count"], info["v_count"]
+
+
 def hippo_occ_handle_specs(obj):
     if not hippo_occ_is_object(obj):
         return []
@@ -5215,6 +5659,22 @@ def hippo_occ_handle_specs(obj):
 
     def add(kind, label, point):
         specs.append((kind, label, point.copy()))
+
+    if occ_type in {"loft", "revolve", "sweep1", "planarsrf", "edgesrf", "step", "3dm"}:
+        sid = int(obj.get("hippo_occ_shape_id", -1))
+        if sid >= 0:
+            try:
+                occ = hippo_load_occ_core()
+                if occ.has_shape(sid):
+                    info = occ.extract_bsurf_control_points(sid)
+                    ws, ucnt, vcnt = hippo_occ_surface_cp_in_world(obj, info)
+                    for idx, wp in enumerate(ws):
+                        u = idx // vcnt
+                        v = idx % vcnt
+                        add("cp_{}_{}".format(u, v), "CP {}-{}".format(u, v), wp)
+            except Exception:
+                pass
+        return specs
 
     if occ_type == "box":
         w = float(obj.get("hippo_occ_width", 10.0))
@@ -5261,9 +5721,38 @@ def hippo_occ_points_on(context, obj=None):
     obj = obj or hippo_occ_active_or_parent(context)
     if not hippo_occ_is_object(obj):
         return False, "Select an OCC object first."
+
+    occ_type = obj.get("hippo_occ_type", "")
+
+    # Surfaces (loft, revolve, sweep, imported): show surface control points
+    if occ_type in {"loft", "revolve", "sweep1", "planarsrf", "edgesrf", "step", "3dm"}:
+        specs = hippo_occ_handle_specs(obj)
+        if not specs:
+            return False, f"No control points found for OCC type: {occ_type}"
+        hippo_occ_remove_handles_for_object(obj)
+        handles = []
+        for kind, label, point in specs:
+            handle = hippo_occ_make_empty_handle(context, obj, kind, label, point)
+            if kind.startswith("cp_"):
+                parts = kind.split("_")
+                if len(parts) == 3:
+                    handle["hippo_occ_cp_u"] = int(parts[1])
+                    handle["hippo_occ_cp_v"] = int(parts[2])
+            handles.append(handle)
+        obj["hippo_occ_points_on"] = True
+        obj["hippo_occ_edit_mode"] = True
+        obj["hippo_occ_cp_count"] = len(handles)
+        bpy.ops.object.select_all(action="DESELECT")
+        obj.select_set(True)
+        for handle in handles:
+            handle.select_set(True)
+        context.view_layer.objects.active = handles[0] if handles else obj
+        return True, f"OCC {occ_type} surface control points enabled ({len(handles)} handles)."
+
+    # Primitive solids: show parametric handles
     specs = hippo_occ_handle_specs(obj)
     if not specs:
-        return False, f"PointsOn is not implemented for OCC type: {obj.get('hippo_occ_type', '')}"
+        return False, f"PointsOn is not implemented for OCC type: {occ_type}"
     hippo_occ_remove_handles_for_object(obj)
     handles = [hippo_occ_make_empty_handle(context, obj, kind, label, point) for kind, label, point in specs]
     obj["hippo_occ_points_on"] = True
@@ -5423,6 +5912,7 @@ def hippo_occ_rebuild_from_handle(context, parent_obj, handle):
 
 
 def hippo_occ_points_timer():
+    surface_parents = set()
     for handle in list(bpy.data.objects):
         if not hippo_occ_is_handle(handle):
             continue
@@ -5432,9 +5922,64 @@ def hippo_occ_points_timer():
             continue
         handle["hippo_occ_last_location"] = current
         parent = hippo_occ_parent_from_handle(handle)
-        if parent is not None:
+        if parent is None:
+            continue
+        occ_type = parent.get("hippo_occ_type", "")
+        if occ_type in {"loft", "revolve", "sweep1", "planarsrf", "edgesrf", "step", "3dm"}:
+            surface_parents.add(parent.name)
+        else:
             hippo_occ_rebuild_from_handle(bpy.context, parent, handle)
+
+    for pname in surface_parents:
+        parent = bpy.data.objects.get(pname)
+        if parent:
+            hippo_occ_rebuild_surface_cp(parent)
+            for h in bpy.data.objects:
+                if hippo_occ_is_handle(h) and h.get("hippo_occ_parent") == pname:
+                    h["hippo_occ_last_location"] = hippo_occ_loc_key(h.location)
     return 0.12
+
+
+def hippo_occ_rebuild_surface_cp(parent_obj):
+    """Rebuild an OCC surface from its surface CP handles.
+    Handle locations are in world-space; we inverse-transform them back
+    into the surface's local coordinate system before passing poles to OCC."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception:
+        return False
+
+    old_sid = int(parent_obj.get("hippo_occ_shape_id", -1))
+    if old_sid < 0 or not occ.has_shape(old_sid):
+        return False
+
+    handles = [h for h in bpy.data.objects
+               if hippo_occ_is_handle(h) and h.get("hippo_occ_parent") == parent_obj.name]
+    n_expected = parent_obj.get("hippo_occ_cp_count", 0)
+    if n_expected <= 0 or len(handles) != n_expected:
+        return False
+
+    handles.sort(key=lambda h: (h.get("hippo_occ_cp_u", -1), h.get("hippo_occ_cp_v", -1)))
+
+    try:
+        inv = parent_obj.matrix_world.inverted()
+    except Exception:
+        return False
+
+    new_poles = []
+    for h in handles:
+        loc = inv @ h.location
+        new_poles.append((loc.x, loc.y, loc.z))
+
+    try:
+        new_sid = occ.set_bsurf_control_points(old_sid, new_poles)
+        data = occ.remesh_shape(new_sid, 0.1)
+        hippo_occ_mesh_replace(parent_obj, data)
+        occ.delete_shape(old_sid)
+        parent_obj["hippo_occ_shape_id"] = new_sid
+        return True
+    except Exception:
+        return False
 
 
 def hippo_occ_draw_empty_handles_callback():
@@ -5442,23 +5987,63 @@ def hippo_occ_draw_empty_handles_callback():
     if not context or not context.scene:
         return
     shader = gpu.shader.from_builtin("UNIFORM_COLOR")
-    line_coords, point_coords = [], []
+    lattice_lines = []
+    primitive_lines = []
+    point_coords = []
     for obj in context.scene.objects:
         if not hippo_occ_is_object(obj) or not obj.get("hippo_occ_points_on", False):
             continue
         origin = obj.location.copy()
-        for handle in bpy.data.objects:
-            if hippo_occ_is_handle(handle) and handle.get("hippo_occ_parent") == obj.name:
-                point_coords.append(handle.location.copy())
-                if handle.get("hippo_occ_handle_type") not in {"origin", "center", "base"}:
-                    line_coords.extend([origin, handle.location.copy()])
-    if line_coords:
+        occ_type = obj.get("hippo_occ_type", "")
+        is_surface = occ_type in {"loft", "revolve", "sweep1", "planarsrf", "edgesrf", "step", "3dm"}
+
+        obj_handles = [h for h in bpy.data.objects
+                       if hippo_occ_is_handle(h) and h.get("hippo_occ_parent") == obj.name]
+
+        if is_surface and len(obj_handles) > 1:
+            cp_dict = {}
+            for h in obj_handles:
+                u = h.get("hippo_occ_cp_u", -1)
+                v = h.get("hippo_occ_cp_v", -1)
+                if u >= 0 and v >= 0:
+                    cp_dict[(u, v)] = h.location.copy()
+            if cp_dict:
+                max_u = max(u for u, v in cp_dict)
+                max_v = max(v for u, v in cp_dict)
+                for u in range(max_u + 1):
+                    for v in range(max_v + 1):
+                        p = cp_dict.get((u, v))
+                        if p is None:
+                            continue
+                        pu = cp_dict.get((u + 1, v))
+                        if pu is not None:
+                            lattice_lines.extend([p, pu])
+                        pv = cp_dict.get((u, v + 1))
+                        if pv is not None:
+                            lattice_lines.extend([p, pv])
+                        point_coords.append(p)
+        else:
+            for h in obj_handles:
+                point_coords.append(h.location.copy())
+                if h.get("hippo_occ_handle_type") not in {"origin", "center", "base"}:
+                    primitive_lines.extend([origin, h.location.copy()])
+
+    if lattice_lines:
+        gpu.state.line_width_set(1.0)
+        batch = batch_for_shader(shader, "LINES", {"pos": lattice_lines})
+        shader.bind()
+        shader.uniform_float("color", (0.35, 0.7, 1.0, 0.75))
+        batch.draw(shader)
+        gpu.state.line_width_set(1.0)
+
+    if primitive_lines:
         gpu.state.line_width_set(1.4)
-        batch = batch_for_shader(shader, "LINES", {"pos": line_coords})
+        batch = batch_for_shader(shader, "LINES", {"pos": primitive_lines})
         shader.bind()
         shader.uniform_float("color", (1.0, 0.82, 0.05, 0.85))
         batch.draw(shader)
         gpu.state.line_width_set(1.0)
+
     if point_coords:
         gpu.state.point_size_set(9.0)
         batch = batch_for_shader(shader, "POINTS", {"pos": point_coords})
@@ -5492,7 +6077,7 @@ def hippo_occ_points_off_command(context):
     return hippo_occ_points_off(context, hippo_occ_active_or_parent(context))
 
 
-classes = [HIPPO_OT_OCCTogglePoints, HIPPO_OT_OCCBox, HIPPO_OT_OCCSphere, HIPPO_OT_OCCCylinder, HIPPO_OT_OCCCone, HIPPO_OT_OCCTorus, Hippo3D_OT_Command, Hippo3D_OT_StartLine, Hippo3D_OT_StartPolyline, Hippo3D_OT_StartRectangle, Hippo3D_OT_StartCircle, Hippo3D_OT_StartNurbs, Hippo3D_OT_SetSelectedNurbsDegree, Hippo3D_OT_Hippo3D_Loft, CAD_OT_LoftSurface, CAD_OT_LoftRealModifier, HIPPO_OT_NativeStatus, HIPPO_OT_StartArc, HIPPO_OT_Ellipse, HIPPO_OT_Polygon, HIPPO_OT_Project, HIPPO_OT_Array, HIPPO_OT_Explode, HIPPO_OT_XLine, HIPPO_OT_Offset,  HIPPO_OT_Trim, HIPPO_OT_Hippo3D_PlanarSurface, HIPPO_OT_Hippo3D_EdgeSurface, Hippo3D_OT_Hippo3D_Revolve, Hippo3D_OT_ClearRevolveAxis, Hippo3D_OT_SetRevolveAxis, CAD_OT_PipeSurface, CAD_OT_ExtrudeSurface, Hippo3D_OT_StartCommand, Hippo3D_OT_ToggleOrtho, Hippo3D_OT_ConvertToMesh, Hippo3D_OT_Join, Hippo3D_OT_SaveCPlane, Hippo3D_OT_RestoreCPlane, Hippo3D_OT_StartCPlane3Pt, Hippo3D_OT_StartCPlaneFace, Hippo3D_OT_StartCPlaneCurvePerp, Hippo3D_OT_RotateCPlane, Hippo3D_OT_StartCPlaneRotate3Pt, Hippo3D_OT_ApplyCPlaneAxisRotation, Hippo3D_OT_StartCPlaneAxisRotate, Hippo3D_OT_StartCPlaneMove, Hippo3D_OT_CameraToCPlane, Hippo3D_OT_ViewToCPlane, Hippo3D_OT_StartCPlaneZAxis, Hippo3D_OT_StartCPlaneXAxis, Hippo3D_OT_ToggleCPlaneVisibilityExplicit, Hippo3D_OT_ActivateCPlaneExplicit, Hippo3D_OT_RefreshCPlaneList, Hippo3D_OT_DeleteSelectedCPlane, Hippo3D_OT_ActivateSelectedCPlane, Hippo3D_OT_ToggleSelectedCPlaneVisible, Hippo3D_UL_CPlaneList, Hippo3D_CPlaneListItem, Hippo3D_OT_SetBuiltinCPlane, Hippo3D_OT_RestoreCPlaneByName, Hippo3D_OT_SetCPlaneVisible, Hippo3D_OT_DeleteCPlane, Hippo3D_PT_MainPanel]
+classes = [HIPPO_OT_OCCTogglePoints, HIPPO_OT_OCCBox, HIPPO_OT_OCCSphere, HIPPO_OT_OCCCylinder, HIPPO_OT_OCCCone, HIPPO_OT_OCCTorus, HIPPO_OT_OCCLoft, HIPPO_OT_OCCRevolve, HIPPO_OT_OCCSweep1, HIPPO_OT_OCCPlanarSrf, HIPPO_OT_OCCEdgeSrf, HIPPO_OT_OCCBooleanFuse, HIPPO_OT_OCCBooleanCut, HIPPO_OT_OCCBooleanCommon, HIPPO_OT_OCCSplit, Hippo3D_OT_Command, Hippo3D_OT_StartLine, Hippo3D_OT_StartPolyline, Hippo3D_OT_StartRectangle, Hippo3D_OT_StartCircle, Hippo3D_OT_StartNurbs, Hippo3D_OT_SetSelectedNurbsDegree, Hippo3D_OT_Hippo3D_Loft, CAD_OT_LoftSurface, CAD_OT_LoftRealModifier, HIPPO_OT_NativeStatus, HIPPO_OT_StartArc, HIPPO_OT_Ellipse, HIPPO_OT_Polygon, HIPPO_OT_Project, HIPPO_OT_Array, HIPPO_OT_Explode, HIPPO_OT_XLine, HIPPO_OT_Offset,  HIPPO_OT_Trim, HIPPO_OT_Hippo3D_PlanarSurface, HIPPO_OT_Hippo3D_EdgeSurface, Hippo3D_OT_Hippo3D_Revolve, Hippo3D_OT_ClearRevolveAxis, Hippo3D_OT_SetRevolveAxis, CAD_OT_PipeSurface, CAD_OT_ExtrudeSurface, Hippo3D_OT_StartCommand, Hippo3D_OT_ToggleOrtho, Hippo3D_OT_ConvertToMesh, Hippo3D_OT_Join, Hippo3D_OT_SaveCPlane, Hippo3D_OT_RestoreCPlane, Hippo3D_OT_StartCPlane3Pt, Hippo3D_OT_StartCPlaneFace, Hippo3D_OT_StartCPlaneCurvePerp, Hippo3D_OT_RotateCPlane, Hippo3D_OT_StartCPlaneRotate3Pt, Hippo3D_OT_ApplyCPlaneAxisRotation, Hippo3D_OT_StartCPlaneAxisRotate, Hippo3D_OT_StartCPlaneMove, Hippo3D_OT_CameraToCPlane, Hippo3D_OT_ViewToCPlane, Hippo3D_OT_StartCPlaneZAxis, Hippo3D_OT_StartCPlaneXAxis, Hippo3D_OT_ToggleCPlaneVisibilityExplicit, Hippo3D_OT_ActivateCPlaneExplicit, Hippo3D_OT_RefreshCPlaneList, Hippo3D_OT_DeleteSelectedCPlane, Hippo3D_OT_ActivateSelectedCPlane, Hippo3D_OT_ToggleSelectedCPlaneVisible, Hippo3D_UL_CPlaneList, Hippo3D_CPlaneListItem, Hippo3D_OT_SetBuiltinCPlane, Hippo3D_OT_RestoreCPlaneByName, Hippo3D_OT_SetCPlaneVisible, Hippo3D_OT_DeleteCPlane, Hippo3D_PT_MainPanel]
 
 
 def _cad_cplane_enum_update(self, context):
@@ -9633,18 +10218,9 @@ def register():
     except Exception:
         pass
 
-    try:
-        if not hasattr(state, "occ_edge_draw_handle"):
-            state.occ_edge_draw_handle = None
-        if state.occ_edge_draw_handle is None:
-            state.occ_edge_draw_handle = bpy.types.SpaceView3D.draw_handler_add(
-                draw_occ_edge_cache_callback,
-                (),
-                "WINDOW",
-                "POST_VIEW",
-            )
-    except Exception:
-        pass
+    # Blue OCC edge GPU visualization removed — it was too heavy
+    # for large surfaces (lofts with many faces) and persisted after
+    # hiding geometries. The mesh itself is sufficient display.
 
     try:
         if state.cplane_draw_handle is None:
