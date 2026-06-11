@@ -2,7 +2,7 @@
 # CMake module to locate the OpenCASCADE (OCCT) development libraries.
 #
 # This module searches common installation prefixes per platform:
-#   Linux:   /usr, /usr/local
+#   Linux:   /usr, /usr/local, and the project-local third_party/occt-8.0.0
 #   macOS:   /opt/homebrew/opt/opencascade, /usr/local/opt/opencascade
 #   FreeBSD: /usr/local
 #   OpenBSD: /usr/local

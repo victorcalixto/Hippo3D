@@ -6,6 +6,18 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ---------------------------------------------------------------------------
+# Prefer locally built OCCT 8.0.0 over system OCCT
+# ---------------------------------------------------------------------------
+set(LOCAL_OCCT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/occt-8.0.0")
+if(EXISTS "${LOCAL_OCCT}/lib/cmake/opencascade/OpenCASCADEConfig.cmake")
+    list(APPEND CMAKE_PREFIX_PATH "${LOCAL_OCCT}")
+    set(OpenCASCADE_DIR "${LOCAL_OCCT}/lib/cmake/opencascade")
+    message(STATUS "Using local OCCT 8.0.0: ${LOCAL_OCCT}")
+else()
+    message(STATUS "Local OCCT 8.0.0 not found, falling back to system OCCT")
+endif()
+
+# ---------------------------------------------------------------------------
 # Allow our custom Find modules to be located
 # ---------------------------------------------------------------------------
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
