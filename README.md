@@ -99,9 +99,9 @@ Example workflow:
 
 ## Blender Add-on Installation
 
-1. Download the repository:
+1. Download the latest stable release:
 
-[Download](https://github.com/victorcalixto/Hippo3D/archive/refs/heads/master.zip)
+[Download v0.1.1](https://github.com/victorcalixto/Hippo3D/archive/refs/tags/v0.1.1.zip)
 
 2. Open Blender
 
