@@ -1,0 +1,229 @@
+#!/usr/bin/env python3
+"""
+bundle_occt.py  —  Copy OpenCASCADE (OCCT) shared libraries next to the native module.
+
+Usage:
+    python bundle_occt.py [--platform PLATFORM] [--build-dir BUILD] [--out-dir OUT]
+
+This makes the Hippo3D add-on self-contained so end-users do not need to
+install OCCT system-wide. The script locates the OCCT libraries that the
+built module links against and copies them into the platform output folder.
+
+Supported platforms:
+    linux-x64, macos-arm64, macos-x64, freebsd-x64, openbsd-x64, windows-x64
+
+Requirements:
+    - Linux/FreeBSD/OpenBSD: ldd
+    - macOS:           otool -L
+    - Windows:         dumpbin /dependents (via VS Developer Prompt)
+"""
+
+import argparse
+import os
+import platform
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+def _detect_platform():
+    """Return the canonical platform folder name for the current machine."""
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    if system == "linux":
+        return "linux-x64"
+    if system == "darwin":
+        return "macos-arm64" if ("arm" in machine or "aarch64" in machine) else "macos-x64"
+    if system == "freebsd":
+        return "freebsd-x64"
+    if system == "openbsd":
+        return "openbsd-x64"
+    if system == "windows":
+        return "windows-x64"
+    raise RuntimeError(f"Unsupported platform: {system} {machine}")
+
+
+def _find_module(build_dir: Path):
+    """Locate the built hippo_occ_core module inside build_dir."""
+    candidates = list(build_dir.rglob("hippo_occ_core*.so")) + \
+                 list(build_dir.rglob("hippo_occ_core*.pyd")) + \
+                 list(build_dir.rglob("hippo_occ_core*.dylib"))
+    if not candidates:
+        raise FileNotFoundError(
+            f"Built module not found under {build_dir}. Please build first."
+        )
+    return candidates[0]
+
+
+def _linux_libs(module: Path):
+    """Return list of absolute OCCT .so paths using ldd."""
+    try:
+        out = subprocess.check_output(["ldd", str(module)], text=True)
+    except FileNotFoundError:
+        print("Error: 'ldd' not found. Cannot discover linked libraries.")
+        return []
+    libs = []
+    for line in out.splitlines():
+        # e.g.  libTKernel.so.7 => /usr/lib/x86_64-linux-gnu/libTKernel.so.7 (0x...)
+        if "=>" not in line:
+            continue
+        _, rest = line.split("=>", 1)
+        parts = rest.strip().split()
+        if not parts:
+            continue
+        path_str = parts[0]
+        if not path_str.startswith("/"):
+            continue
+        p = Path(path_str)
+        name_lower = p.name.lower()
+        # OCCT libraries always start with libTK (case-insensitive)
+        if name_lower.startswith("libtk"):
+            libs.append(p)
+    return libs
+
+
+def _macos_libs(module: Path):
+    """Return list of absolute OCCT .dylib paths using otool -L."""
+    try:
+        out = subprocess.check_output(["otool", "-L", str(module)], text=True)
+    except FileNotFoundError:
+        print("Error: 'otool' not found. Cannot discover linked libraries.")
+        return []
+    libs = []
+    for line in out.splitlines()[1:]:  # skip first line (self reference)
+        parts = line.strip().split()
+        if not parts:
+            continue
+        path = parts[0]
+        if path.startswith("@"):
+            continue  # skip @rpath, @loader_path, @executable_path
+        # Absolute path — check if it smells like OCCT
+        p = Path(path)
+        if any(k in p.name for k in ("libTK", "libTKernel")):
+            libs.append(p)
+    return libs
+
+
+def _windows_libs(module: Path):
+    """Return list of absolute OCCT .dll paths using dumpbin."""
+    dumpbin = shutil.which("dumpbin")
+    if not dumpbin:
+        # Fallback: list known OCCT DLLs from OCCT_ROOT bin directory
+        occt_root = os.environ.get("OCCT_ROOT", "")
+        bin_dir = Path(occt_root) / "win64" / "gcc" / "bin" if occt_root else None
+        if not bin_dir or not bin_dir.is_dir():
+            bin_dir = Path(occt_root) / "bin" if occt_root else None
+        if not bin_dir or not bin_dir.is_dir():
+            print("Warning: Cannot find dumpbin or OCCT_ROOT. Skipping Windows DLL bundling.")
+            print("Tip: Run from a Visual Studio Developer Command Prompt.")
+            return []
+        # Heuristic: grab every TK*.dll
+        return sorted(bin_dir.glob("TK*.dll"))
+
+    try:
+        out = subprocess.check_output(
+            [dumpbin, "/dependents", str(module)], text=True
+        )
+    except subprocess.CalledProcessError:
+        return []
+
+    libs = []
+    in_deps = False
+    for line in out.splitlines():
+        if "Image has the following dependencies:" in line:
+            in_deps = True
+            continue
+        if in_deps:
+            dll_name = line.strip()
+            if not dll_name or dll_name.lower().startswith("summary"):
+                break
+            if dll_name.lower().startswith("tk"):
+                # Search in PATH and OCCT_ROOT for the full path
+                full = shutil.which(dll_name)
+                if full:
+                    libs.append(Path(full))
+                else:
+                    occt_root = os.environ.get("OCCT_ROOT", "")
+                    for guess in (
+                        Path(occt_root) / "bin" / dll_name if occt_root else None,
+                        Path(occt_root) / "win64" / "gcc" / "bin" / dll_name if occt_root else None,
+                    ):
+                        if guess and guess.is_file():
+                            libs.append(guess)
+                            break
+    return libs
+
+
+def _copy_libs(libs, dest: Path):
+    """Copy libraries into dest, resolving symlinks on Unix."""
+    copied = []
+    dest.mkdir(parents=True, exist_ok=True)
+    for lib in libs:
+        if not lib.exists():
+            continue
+        # Resolve symlink so we bundle the real file
+        real = lib.resolve()
+        out = dest / real.name
+        if out.exists():
+            continue
+        shutil.copy2(str(real), str(out))
+        copied.append(out)
+    return copied
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Bundle OCCT shared libraries for Hippo3D"
+    )
+    parser.add_argument(
+        "--platform",
+        default=_detect_platform(),
+        help="Target platform folder (default: auto-detected)",
+    )
+    parser.add_argument(
+        "--build-dir",
+        type=Path,
+        default=Path(__file__).with_name("build"),
+        help="CMake build directory (default: native/build)",
+    )
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=None,
+        help="Output directory (default: native/<platform>)",
+    )
+    args = parser.parse_args()
+
+    build_dir = args.build_dir.resolve()
+    out_dir = (args.out_dir or Path(__file__).with_name(args.platform)).resolve()
+
+    print(f"Platform : {args.platform}")
+    print(f"Build dir: {build_dir}")
+    print(f"Out dir  : {out_dir}")
+
+    module = _find_module(build_dir)
+    print(f"Module   : {module}")
+
+    system = platform.system().lower()
+    if system == "linux" or system == "freebsd" or system == "openbsd":
+        libs = _linux_libs(module)
+    elif system == "darwin":
+        libs = _macos_libs(module)
+    elif system == "windows":
+        libs = _windows_libs(module)
+    else:
+        raise RuntimeError(f"Unsupported system for bundling: {system}")
+
+    if not libs:
+        print("No OCCT libraries detected to bundle.")
+        sys.exit(0)
+
+    copied = _copy_libs(libs, out_dir)
+    print(f"Copied {len(copied)} libraries to {out_dir}")
+    for c in copied:
+        print(f"  {c.name}")
+
+
+if __name__ == "__main__":
+    main()

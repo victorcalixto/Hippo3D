@@ -155,6 +155,47 @@ The project embraces openness, extensibility, experimentation, and interoperabil
 
 ---
 
+# Building from Source
+
+Hippo3D includes a small native C++ extension (`hippo_occ_core`) that wraps **OpenCASCADE** (OCCT). Pre-built binaries may not always be included, so you can build the extension yourself.
+
+Supported platforms:
+
+- **Linux** (x86_64)
+- **macOS** (Intel & Apple Silicon)
+- **Windows** (MSVC)
+- **FreeBSD** (x86_64)
+- **OpenBSD** (x86_64)
+
+See the full build guide: [`native/README_BUILD.md`](./native/README_BUILD.md)
+
+Quick-start per platform:
+
+```bash
+# Linux / FreeBSD / OpenBSD
+cd native
+./build_linux.sh      # or ./build_freebsd.sh, ./build_openbsd.sh
+
+# macOS
+cd native
+./build_macos.sh
+
+# Windows (PowerShell)
+cd native
+.\build_windows.ps1
+```
+
+> **Note:** This repository includes the `opennurbs` library as a Git submodule. Clone with `--recurse-submodules` or run `git submodule update --init --recursive` after cloning.
+
+After building, optionally bundle OCCT libraries so the add-on works without a system-wide OCCT install:
+
+```bash
+cd native
+python bundle_occt.py
+```
+
+---
+
 # Roadmap
 
 - [ ] Improved NURBS workflows

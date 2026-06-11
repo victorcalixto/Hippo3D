@@ -18,6 +18,12 @@ def _platform_folder():
             return "macos-arm64", "hippo_occ_core.so"
         return "macos-x64", "hippo_occ_core.so"
 
+    if system == "freebsd":
+        return "freebsd-x64", "hippo_occ_core.so"
+
+    if system == "openbsd":
+        return "openbsd-x64", "hippo_occ_core.so"
+
     raise RuntimeError(f"Unsupported platform: {system} {machine}")
 
 

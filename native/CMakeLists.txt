@@ -5,57 +5,59 @@ project(hippo_occ_core LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# ---------------------------------------------------------------------------
+# Allow our custom Find modules to be located
+# ---------------------------------------------------------------------------
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
 find_package(pybind11 REQUIRED)
+find_package(OpenCASCADE REQUIRED)
 
-find_path(OCCT_INCLUDE_DIR
-    NAMES BRepPrimAPI_MakeBox.hxx
-    PATHS /usr/include/opencascade
-)
-
-find_library(OCCT_TKernel TKernel)
-find_library(OCCT_TKMath TKMath)
-find_library(OCCT_TKG2d TKG2d)
-find_library(OCCT_TKG3d TKG3d)
-find_library(OCCT_TKGeomBase TKGeomBase)
-find_library(OCCT_TKGeomAlgo TKGeomAlgo)
-find_library(OCCT_TKBRep TKBRep)
-find_library(OCCT_TKTopAlgo TKTopAlgo)
-find_library(OCCT_TKPrim TKPrim)
-find_library(OCCT_TKMesh TKMesh)
-
-find_library(OCCT_TKBool TKBool)
-find_library(OCCT_TKShHealing TKShHealing)
-find_library(OCCT_TKFillet TKFillet)
-find_library(OCCT_TKHLR TKHLR)
-find_library(OCCT_TKOffset TKOffset)
-
-# Data Exchange libraries
-find_library(OCCT_TKDESTEP TKDESTEP)
-find_library(OCCT_TKDEIGES TKDEIGES)
-find_library(OCCT_TKXSBase TKXSBase)
-
+# ---------------------------------------------------------------------------
 # OpenNURBS — use static library.
 # OpenNURBS is built with a prefixed internal zlib (z_inflate, z_deflate, etc.).
 # The system libz.so exports the unprefixed names (inflate, deflate, ...), so
 # -lz alone does NOT resolve the z_* symbols.
 # Therefore we must also link the OpenNURBS built-in zlib static archive.
-# We still load -lz last so that any unprefixed zlib calls from other code use
-# the system zlib, and we use -Bsymbolic-functions / --exclude-libs,ALL to
-# keep everything self-contained.
+# ---------------------------------------------------------------------------
 set(OPENNURBS_DIR "${CMAKE_SOURCE_DIR}/third_party/opennurbs")
-find_library(OPENNURBS_STATIC_LIB opennurbsStatic
+
+find_library(OPENNURBS_STATIC_LIB
+    NAMES opennurbsStatic
     PATHS ${OPENNURBS_DIR}/build
+    NO_DEFAULT_PATH
 )
-set(OPENNURBS_ZLIB_A "${OPENNURBS_DIR}/build/zlib/libzlib.a")
+if(NOT OPENNURBS_STATIC_LIB)
+    message(FATAL_ERROR "OpenNURBS static library not found in ${OPENNURBS_DIR}/build")
+endif()
+
+set(OPENNURBS_ZLIB_A "${OPENNURBS_DIR}/build/zlib/${CMAKE_STATIC_LIBRARY_PREFIX}zlib${CMAKE_STATIC_LIBRARY_SUFFIX}")
 if(NOT EXISTS ${OPENNURBS_ZLIB_A})
     message(FATAL_ERROR "OpenNURBS built-in zlib archive not found: ${OPENNURBS_ZLIB_A}")
 endif()
 
-set(OPENNURBS_ANDROID_UUID_A "${OPENNURBS_DIR}/build/android_uuid/libandroid_uuid.a")
+set(OPENNURBS_ANDROID_UUID_A "${OPENNURBS_DIR}/build/android_uuid/${CMAKE_STATIC_LIBRARY_PREFIX}android_uuid${CMAKE_STATIC_LIBRARY_SUFFIX}")
 if(NOT EXISTS ${OPENNURBS_ANDROID_UUID_A})
     message(FATAL_ERROR "OpenNURBS android_uuid archive not found: ${OPENNURBS_ANDROID_UUID_A}")
 endif()
 
+# ---------------------------------------------------------------------------
+# System zlib
+# ---------------------------------------------------------------------------
+find_package(ZLIB REQUIRED)
+
+# ---------------------------------------------------------------------------
+# Platform-specific adjustments
+# ---------------------------------------------------------------------------
+if(WIN32)
+    # Disable iterator-debug assertion mismatch when linking release-mode OCCT
+    # against a debug build (common with prebuilt OCCT on Windows).
+    add_compile_definitions($<$<CONFIG:Debug>:_ITERATOR_DEBUG_LEVEL=0>)
+endif()
+
+# ---------------------------------------------------------------------------
+# PyBind11 module
+# ---------------------------------------------------------------------------
 pybind11_add_module(hippo_occ_core
     src/hippo_occ_core.cpp
     src/occ_mesh.cpp
@@ -71,39 +73,76 @@ pybind11_add_module(hippo_occ_core
 
 target_include_directories(hippo_occ_core PRIVATE
     include
-    ${OCCT_INCLUDE_DIR}
     ${OPENNURBS_DIR}
 )
 
 target_link_libraries(hippo_occ_core PRIVATE
-    ${OCCT_TKernel}
-    ${OCCT_TKMath}
-    ${OCCT_TKG2d}
-    ${OCCT_TKG3d}
-    ${OCCT_TKGeomBase}
-    ${OCCT_TKGeomAlgo}
-    ${OCCT_TKBRep}
-    ${OCCT_TKTopAlgo}
-    ${OCCT_TKPrim}
-    ${OCCT_TKMesh}
-    ${OCCT_TKBool}
-    ${OCCT_TKShHealing}
-    ${OCCT_TKFillet}
-    ${OCCT_TKHLR}
-    ${OCCT_TKOffset}
-    ${OCCT_TKDESTEP}
-    ${OCCT_TKDEIGES}
-    ${OCCT_TKXSBase}
+    OpenCASCADE::OpenCASCADE
     ${OPENNURBS_STATIC_LIB}
     ${OPENNURBS_ZLIB_A}
     ${OPENNURBS_ANDROID_UUID_A}
-    z
+    ZLIB::ZLIB
 )
 
-# -Bsymbolic-functions: resolve function symbols locally within this DSO.
-# We include OpenNURBS's own prefixed zlib (libzlib.a) so its z_* calls resolve
-# inside the DSO and are never hijacked by Blender's bundled zlib copy.
-# --exclude-libs,ALL: keep internal archive symbols from leaking into the dynamic table.
-set_target_properties(hippo_occ_core PROPERTIES
-    LINK_FLAGS "-Wl,-Bsymbolic-functions -Wl,--exclude-libs,ALL"
-)
+# ---------------------------------------------------------------------------
+# RPATH / RUNPATH so the built module finds OCCT when bundled.
+# ---------------------------------------------------------------------------
+if(APPLE)
+    set_target_properties(hippo_occ_core PROPERTIES
+        INSTALL_RPATH "@loader_path"
+        BUILD_WITH_INSTALL_RPATH TRUE
+    )
+elseif(UNIX)
+    set_target_properties(hippo_occ_core PROPERTIES
+        INSTALL_RPATH "$ORIGIN"
+        BUILD_WITH_INSTALL_RPATH TRUE
+    )
+endif()
+
+# ---------------------------------------------------------------------------
+# Platform-specific linker options
+# ---------------------------------------------------------------------------
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # -Bsymbolic-functions: resolve function symbols locally within this DSO.
+    # --exclude-libs,ALL: keep internal archive symbols from leaking into the dynamic table.
+    target_link_options(hippo_occ_core PRIVATE
+        "LINKER:-Bsymbolic-functions"
+        "LINKER:--exclude-libs,ALL"
+    )
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    # macOS: hide symbols from static archives, strip dead code
+    target_link_options(hippo_occ_core PRIVATE
+        "LINKER:-dead_strip_dylibs"
+        "LINKER:-undefined,dynamic_lookup"
+    )
+elseif(CMAKE_SYSTEM_NAME MATCHES "^(FreeBSD|OpenBSD)$")
+    # BSDs use GNU-compatible ld
+    target_link_options(hippo_occ_core PRIVATE
+        "LINKER:-Bsymbolic-functions"
+        "LINKER:--exclude-libs,ALL"
+    )
+elseif(WIN32 AND MSVC)
+    # MSVC: suppress harmless iterator debug warnings, enable big obj
+    target_compile_options(hippo_occ_core PRIVATE /bigobj)
+    target_link_options(hippo_occ_core PRIVATE /INCREMENTAL:NO)
+elseif(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    # Windows MinGW (best-effort / future-proofing)
+    target_link_options(hippo_occ_core PRIVATE
+        "LINKER:-Bsymbolic-functions"
+        "LINKER:--exclude-libs,ALL"
+    )
+endif()
+
+# ---------------------------------------------------------------------------
+# Post-build: copy resulting module into the platform output folder
+# ---------------------------------------------------------------------------
+set(HIPPO_OUTDIR "${CMAKE_SOURCE_DIR}/${HIPPO_PLATFORM_FOLDER}")
+if(HIPPO_PLATFORM_FOLDER)
+    add_custom_command(TARGET hippo_occ_core POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${HIPPO_OUTDIR}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:hippo_occ_core>"
+            "${HIPPO_OUTDIR}/"
+        COMMENT "Copying $<TARGET_FILE_NAME:hippo_occ_core> to ${HIPPO_OUTDIR}/"
+    )
+endif()

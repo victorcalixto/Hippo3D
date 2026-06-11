@@ -14,12 +14,21 @@ dist/
 
 # Native binaries
 *.so
+*.pyd
 *.dll
 *.dylib
 *.a
 *.lib
 *.o
 *.obj
+
+# Platform-specific native output folders (contain built modules + bundled OCCT libs)
+native/linux-x64/
+native/macos-arm64/
+native/macos-x64/
+native/freebsd-x64/
+native/openbsd-x64/
+native/windows-x64/
 
 # CMake
 CMakeFiles/

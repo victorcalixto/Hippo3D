@@ -30,7 +30,8 @@ rm -rf build
 cmake -S . -B build -G Ninja \
     -DPython_EXECUTABLE="$PYTHON_BIN" \
     -DPYTHON_EXECUTABLE="$PYTHON_BIN" \
-    -Dpybind11_DIR="$PYBIND11_DIR"
+    -Dpybind11_DIR="$PYBIND11_DIR" \
+    -DHIPPO_PLATFORM_FOLDER="linux-x64"
 
 cmake --build build
 
