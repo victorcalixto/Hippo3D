@@ -19,9 +19,6 @@
 #include <gp_Pnt.hxx>
 #include <gp_Trsf.hxx>
 
-#include <Standard_Integer.hxx>
-#include <Standard_Real.hxx>
-
 #include <array>
 #include <vector>
 
@@ -50,16 +47,16 @@ static MeshData shape_to_mesh(const TopoDS_Shape& shape, double deflection) {
         }
 
         const gp_Trsf transform = location.Transformation();
-        const Standard_Integer node_count = triangulation->NbNodes();
+        const int node_count = triangulation->NbNodes();
 
-        for (Standard_Integer i = 1; i <= node_count; ++i) {
+        for (int i = 1; i <= node_count; ++i) {
             gp_Pnt p = triangulation->Node(i).Transformed(transform);
             result.vertices.push_back({p.X(), p.Y(), p.Z()});
         }
 
-        const Standard_Integer triangle_count = triangulation->NbTriangles();
+        const int triangle_count = triangulation->NbTriangles();
 
-        for (Standard_Integer i = 1; i <= triangle_count; ++i) {
+        for (int i = 1; i <= triangle_count; ++i) {
             Poly_Triangle triangle = triangulation->Triangle(i);
 
             int n1, n2, n3;
@@ -100,8 +97,8 @@ py::list shape_edges_to_list(const TopoDS_Shape& shape, double deflection) {
     for (TopExp_Explorer exp(shape, TopAbs_EDGE); exp.More(); exp.Next()) {
         TopoDS_Edge edge = TopoDS::Edge(exp.Current());
 
-        Standard_Real first = 0.0;
-        Standard_Real last = 0.0;
+        double first = 0.0;
+        double last = 0.0;
         BRepAdaptor_Curve curve(edge);
         first = curve.FirstParameter();
         last = curve.LastParameter();

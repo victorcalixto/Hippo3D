@@ -19,9 +19,7 @@
 #include <TopExp_Explorer.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <GCPnts_UniformAbscissa.hxx>
-#include <TColgp_Array1OfPnt.hxx>
-#include <TColStd_Array1OfReal.hxx>
-#include <TColStd_Array1OfInteger.hxx>
+#include <NCollection_Array1.hxx>
 
 #include <stdexcept>
 #include <cmath>
@@ -83,17 +81,17 @@ int make_nurbs_curve(
     int nb_poles = static_cast<int>(cvs.size());
     int nb_knots = static_cast<int>(knots.size());
 
-    TColgp_Array1OfPnt poles(1, nb_poles);
+    NCollection_Array1<gp_Pnt> poles(1, nb_poles);
     for (int i = 0; i < nb_poles; ++i) {
         poles(i + 1) = gp_Pnt(cvs[i][0], cvs[i][1], cvs[i][2]);
     }
 
-    TColStd_Array1OfReal occ_knots(1, nb_knots);
+    NCollection_Array1<double> occ_knots(1, nb_knots);
     for (int i = 0; i < nb_knots; ++i) {
         occ_knots(i + 1) = knots[i];
     }
 
-    TColStd_Array1OfInteger occ_mults(1, nb_knots);
+    NCollection_Array1<int> occ_mults(1, nb_knots);
     for (int i = 0; i < nb_knots; ++i) {
         int m = (i < static_cast<int>(mults.size())) ? mults[i] : 1;
         occ_mults(i + 1) = m;
@@ -109,7 +107,7 @@ int make_nurbs_curve(
 
     Handle(Geom_BSplineCurve) curve;
     if (is_rational) {
-        TColStd_Array1OfReal weights(1, nb_poles);
+        NCollection_Array1<double> weights(1, nb_poles);
         for (int i = 0; i < nb_poles; ++i) {
             weights(i + 1) = cvs[i][3];
         }

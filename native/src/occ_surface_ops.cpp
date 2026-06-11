@@ -29,13 +29,11 @@
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
 #include <gp_Dir.hxx>
-#include <Standard_Boolean.hxx>
 // B-spline surface
 #include <Geom_BSplineSurface.hxx>
 #include <Geom_RectangularTrimmedSurface.hxx>
-#include <TColgp_Array2OfPnt.hxx>
-#include <TColStd_Array1OfReal.hxx>
-#include <TColStd_Array1OfInteger.hxx>
+#include <NCollection_Array1.hxx>
+#include <NCollection_Array2.hxx>
 
 // pybind11 types
 #include <pybind11/pybind11.h>
@@ -71,7 +69,7 @@ int occ_loft(const std::vector<int>& wire_shape_ids, bool closed, bool solid) {
     if (wire_shape_ids.size() < 2) {
         throw std::invalid_argument("occ_loft: need at least 2 section wires");
     }
-    BRepOffsetAPI_ThruSections loft_builder(solid, Standard_False, 1e-6);
+    BRepOffsetAPI_ThruSections loft_builder(solid, false, 1e-6);
     for (int sid : wire_shape_ids) {
         if (!has_shape(sid))
             throw std::invalid_argument("occ_loft: shape id not found in registry");
@@ -171,7 +169,7 @@ int occ_planar_srf(int wire_shape_id) {
     TopoDS_Wire wire = get_wire_from_shape(shape);
     if (wire.IsNull())
         throw std::invalid_argument("occ_planar_srf: wire is null");
-    BRepBuilderAPI_MakeFace face_builder(wire, Standard_True);
+    BRepBuilderAPI_MakeFace face_builder(wire, true);
     if (!face_builder.IsDone())
         throw std::runtime_error("occ_planar_srf: face construction failed");
     return register_shape(face_builder.Face());
@@ -242,7 +240,7 @@ pybind11::dict extract_bsurf_control_points(int shape_id) {
     int v_deg   = bsurf->VDegree();
 
     pybind11::list poles;
-    const TColgp_Array2OfPnt& arr = bsurf->Poles();
+    const NCollection_Array2<gp_Pnt>& arr = bsurf->Poles();
     for (int i = arr.LowerRow(); i <= arr.UpperRow(); ++i) {
         for (int j = arr.LowerCol(); j <= arr.UpperCol(); ++j) {
             gp_Pnt p = arr(i, j);
@@ -251,15 +249,15 @@ pybind11::dict extract_bsurf_control_points(int shape_id) {
     }
 
     pybind11::list uknots, vknots;
-    const TColStd_Array1OfReal& uka = bsurf->UKnots();
+    const NCollection_Array1<double>& uka = bsurf->UKnots();
     for (int i = uka.Lower(); i <= uka.Upper(); ++i) uknots.append(uka(i));
-    const TColStd_Array1OfReal& vka = bsurf->VKnots();
+    const NCollection_Array1<double>& vka = bsurf->VKnots();
     for (int i = vka.Lower(); i <= vka.Upper(); ++i) vknots.append(vka(i));
 
     pybind11::list umults, vmults;
-    const TColStd_Array1OfInteger& uma = bsurf->UMultiplicities();
+    const NCollection_Array1<int>& uma = bsurf->UMultiplicities();
     for (int i = uma.Lower(); i <= uma.Upper(); ++i) umults.append(uma(i));
-    const TColStd_Array1OfInteger& vma = bsurf->VMultiplicities();
+    const NCollection_Array1<int>& vma = bsurf->VMultiplicities();
     for (int i = vma.Lower(); i <= vma.Upper(); ++i) vmults.append(vma(i));
 
     pybind11::dict result;
@@ -293,18 +291,18 @@ int set_bsurf_control_points(int old_shape_id,
             ", expected " + std::to_string(expected));
 
     // Re-use original knots / mults / degree / periodicity
-    TColStd_Array1OfReal uknots(bsurf->UKnots());
-    TColStd_Array1OfReal vknots(bsurf->VKnots());
-    TColStd_Array1OfInteger umults(bsurf->UMultiplicities());
-    TColStd_Array1OfInteger vmults(bsurf->VMultiplicities());
+    NCollection_Array1<double> uknots(bsurf->UKnots());
+    NCollection_Array1<double> vknots(bsurf->VKnots());
+    NCollection_Array1<int> umults(bsurf->UMultiplicities());
+    NCollection_Array1<int> vmults(bsurf->VMultiplicities());
 
     Handle(Geom_BSplineSurface) new_surf;
     if (bsurf->IsURational() || bsurf->IsVRational()) {
         // Rational: keep original weights, replace only poles
-        TColgp_Array2OfPnt new_poles(1, u_count, 1, v_count);
-        TColStd_Array2OfReal new_weights(1, u_count, 1, v_count);
-        const TColgp_Array2OfPnt& old_poles = bsurf->Poles();
-        const TColStd_Array2OfReal* old_weights_ptr = bsurf->Weights();
+        NCollection_Array2<gp_Pnt> new_poles(1, u_count, 1, v_count);
+        NCollection_Array2<double> new_weights(1, u_count, 1, v_count);
+        const NCollection_Array2<gp_Pnt>& old_poles = bsurf->Poles();
+        const NCollection_Array2<double>* old_weights_ptr = bsurf->Weights();
         size_t idx = 0;
         for (int i = 1; i <= u_count; ++i) {
             for (int j = 1; j <= v_count; ++j) {
@@ -319,7 +317,7 @@ int set_bsurf_control_points(int old_shape_id,
             bsurf->IsUPeriodic(), bsurf->IsVPeriodic());
     } else {
         // Non-rational
-        TColgp_Array2OfPnt new_poles(1, u_count, 1, v_count);
+        NCollection_Array2<gp_Pnt> new_poles(1, u_count, 1, v_count);
         size_t idx = 0;
         for (int i = 1; i <= u_count; ++i) {
             for (int j = 1; j <= v_count; ++j) {

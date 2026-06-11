@@ -32,11 +32,8 @@
 #include <Geom_SphericalSurface.hxx>
 #include <Geom_ToroidalSurface.hxx>
 #include <GeomConvert.hxx>
-#include <TColgp_Array2OfPnt.hxx>
-#include <TColgp_Array1OfPnt.hxx>
-#include <TColStd_Array1OfReal.hxx>
-#include <TColStd_Array1OfInteger.hxx>
-#include <TColStd_Array2OfReal.hxx>
+#include <NCollection_Array1.hxx>
+#include <NCollection_Array2.hxx>
 
 #include <vector>
 #include <array>
@@ -160,10 +157,8 @@ static std::unique_ptr<ON_NurbsSurface> occ_surface_to_on_nurbs(const Handle(Geo
     // Copy knots.
     // Non-periodic: drop one copy from each end (OCC uses degree+1, ON uses degree).
     // Periodic: copy the full flat array without dropping.
-    TColStd_Array1OfReal u_knots_arr(1, u_knots);
-    TColStd_Array1OfInteger u_mults_arr(1, u_knots);
-    occ_surf->UKnots(u_knots_arr);
-    occ_surf->UMultiplicities(u_mults_arr);
+    const NCollection_Array1<double>& u_knots_arr = occ_surf->UKnots();
+    const NCollection_Array1<int>& u_mults_arr = occ_surf->UMultiplicities();
 
     int on_knot_idx = 0;
     for (int i = 1; i <= u_knots; ++i) {
@@ -177,10 +172,8 @@ static std::unique_ptr<ON_NurbsSurface> occ_surface_to_on_nurbs(const Handle(Geo
         }
     }
 
-    TColStd_Array1OfReal v_knots_arr(1, v_knots);
-    TColStd_Array1OfInteger v_mults_arr(1, v_knots);
-    occ_surf->VKnots(v_knots_arr);
-    occ_surf->VMultiplicities(v_mults_arr);
+    const NCollection_Array1<double>& v_knots_arr = occ_surf->VKnots();
+    const NCollection_Array1<int>& v_mults_arr = occ_surf->VMultiplicities();
 
     on_knot_idx = 0;
     for (int i = 1; i <= v_knots; ++i) {
@@ -208,7 +201,7 @@ static Handle(Geom_BSplineSurface) on_nurbs_to_occ_surface(const ON_NurbsSurface
     int v_poles = on_surf->CVCount(1);
     bool is_rational = on_surf->IsRational();
 
-    TColgp_Array2OfPnt poles(1, u_poles, 1, v_poles);
+    NCollection_Array2<gp_Pnt> poles(1, u_poles, 1, v_poles);
 
     // Copy poles
     for (int i = 1; i <= u_poles; ++i) {
@@ -248,8 +241,8 @@ static Handle(Geom_BSplineSurface) on_nurbs_to_occ_surface(const ON_NurbsSurface
         if (!u_unique_mults.empty()) u_unique_mults.front() += 1;
         if (u_unique_mults.size() > 1) u_unique_mults.back() += 1;
     }
-    TColStd_Array1OfReal    u_knots(1, static_cast<int>(u_unique.size()));
-    TColStd_Array1OfInteger u_mults(1, static_cast<int>(u_unique.size()));
+    NCollection_Array1<double>    u_knots(1, static_cast<int>(u_unique.size()));
+    NCollection_Array1<int> u_mults(1, static_cast<int>(u_unique.size()));
     for (size_t i = 0; i < u_unique.size(); ++i) {
         u_knots(static_cast<int>(i) + 1) = u_unique[i];
         u_mults(static_cast<int>(i) + 1) = u_unique_mults[i];
@@ -271,8 +264,8 @@ static Handle(Geom_BSplineSurface) on_nurbs_to_occ_surface(const ON_NurbsSurface
         if (!v_unique_mults.empty()) v_unique_mults.front() += 1;
         if (v_unique_mults.size() > 1) v_unique_mults.back() += 1;
     }
-    TColStd_Array1OfReal    v_knots(1, static_cast<int>(v_unique.size()));
-    TColStd_Array1OfInteger v_mults(1, static_cast<int>(v_unique.size()));
+    NCollection_Array1<double>    v_knots(1, static_cast<int>(v_unique.size()));
+    NCollection_Array1<int> v_mults(1, static_cast<int>(v_unique.size()));
     for (size_t i = 0; i < v_unique.size(); ++i) {
         v_knots(static_cast<int>(i) + 1) = v_unique[i];
         v_mults(static_cast<int>(i) + 1) = v_unique_mults[i];
@@ -285,7 +278,7 @@ static Handle(Geom_BSplineSurface) on_nurbs_to_occ_surface(const ON_NurbsSurface
     // in the constructor is kept for round-trip information only.
 
     if (is_rational) {
-        TColStd_Array2OfReal weights(1, u_poles, 1, v_poles);
+        NCollection_Array2<double> weights(1, u_poles, 1, v_poles);
         for (int i = 1; i <= u_poles; ++i) {
             for (int j = 1; j <= v_poles; ++j) {
                 weights(i, j) = on_surf->Weight(i - 1, j - 1);
@@ -322,17 +315,17 @@ static std::tuple<bool, std::string> export_3dm_mesh(int shape_id, const std::st
         }
 
         const gp_Trsf transform = location.Transformation();
-        const Standard_Integer node_count = triangulation->NbNodes();
-        const Standard_Integer triangle_count = triangulation->NbTriangles();
+        const int node_count = triangulation->NbNodes();
+        const int triangle_count = triangulation->NbTriangles();
 
         int vertex_offset = static_cast<int>(vertices.size());
 
-        for (Standard_Integer i = 1; i <= node_count; ++i) {
+        for (int i = 1; i <= node_count; ++i) {
             gp_Pnt p = triangulation->Node(i).Transformed(transform);
             vertices.emplace_back(p.X(), p.Y(), p.Z());
         }
 
-        for (Standard_Integer i = 1; i <= triangle_count; ++i) {
+        for (int i = 1; i <= triangle_count; ++i) {
             Poly_Triangle triangle = triangulation->Triangle(i);
             int n1, n2, n3;
             triangle.Get(n1, n2, n3);
@@ -432,7 +425,7 @@ static void build_on_geometry_from_shape(
             // Planar surfaces throw from GeomConvert::SurfaceToBSplineSurface.
             // Use BRepBuilderAPI_NurbsConvert as a fallback.
             try {
-                BRepBuilderAPI_NurbsConvert nurbs_converter(face, Standard_False);
+                BRepBuilderAPI_NurbsConvert nurbs_converter(face, false);
                 if (nurbs_converter.IsDone()) {
                     TopoDS_Face nurbs_face = TopoDS::Face(nurbs_converter.Shape());
                     TopLoc_Location nurbs_loc;
@@ -838,15 +831,15 @@ std::tuple<bool, std::string> export_3dm_multi(const std::vector<int>& shape_ids
                     if (triangulation.IsNull()) continue;
 
                     const gp_Trsf transform = location.Transformation();
-                    const Standard_Integer node_count = triangulation->NbNodes();
-                    const Standard_Integer triangle_count = triangulation->NbTriangles();
+                    const int node_count = triangulation->NbNodes();
+                    const int triangle_count = triangulation->NbTriangles();
                     int vertex_offset = static_cast<int>(vertices.size());
 
-                    for (Standard_Integer i = 1; i <= node_count; ++i) {
+                    for (int i = 1; i <= node_count; ++i) {
                         gp_Pnt p = triangulation->Node(i).Transformed(transform);
                         vertices.emplace_back(p.X(), p.Y(), p.Z());
                     }
-                    for (Standard_Integer i = 1; i <= triangle_count; ++i) {
+                    for (int i = 1; i <= triangle_count; ++i) {
                         Poly_Triangle triangle = triangulation->Triangle(i);
                         int n1, n2, n3;
                         triangle.Get(n1, n2, n3);
