@@ -30,6 +30,15 @@ native/freebsd-x64/
 native/openbsd-x64/
 native/windows-x64/
 
+# Locally built OCCT 8.0.0
+native/third_party/occt-8.0.0/
+native/third_party/occt-8.0.0-src/
+
+# OpenNURBS build artifacts
+native/third_party/opennurbs/build/
+native/third_party/opennurbs/CMakeFiles/
+native/third_party/opennurbs/CMakeCache.txt
+
 # CMake
 CMakeFiles/
 CMakeCache.txt
