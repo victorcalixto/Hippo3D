@@ -25,7 +25,8 @@ This document covers building the `hippo_occ_core` native extension for **Linux*
 - **CMake** ≥ 3.20
 - **Ninja** (optional but recommended)
 - **Python** 3.11+ with **pybind11** installed
-- **OpenCASCADE (OCCT)** 7.6+ development libraries
+- **OpenCASCADE (OCCT)** 7.6+ development libraries  
+  (or build OCCT 8.0.0 locally — see below)
 - A C++17-capable compiler (GCC, Clang, or MSVC)
 
 ### Installing pybind11
@@ -36,8 +37,10 @@ python -m pip install pybind11
 
 ### Installing OCCT
 
+**Option A: Use system package (simpler, usually OCCT 7.x)**
+
 | OS | Command / Notes |
-|---|---|
+|---|---|---|
 | **Debian/Ubuntu** | `sudo apt-get install libocct-dev occt-draw` |
 | **Fedora/RHEL** | `sudo dnf install opencascade-devel` |
 | **Arch** | `sudo pacman -S opencascade` |
@@ -47,6 +50,29 @@ python -m pip install pybind11
 | **Windows** | Download installer from [OpenCASCADE.org](https://dev.opencascade.org/system/files/resources/OCCT/) or use `vcpkg install opencascade` |
 
 If OCCT is installed in a non-standard prefix, set the environment variable:
+
+```bash
+export OCCT_ROOT=/path/to/occt
+```
+
+**Option B: Build OCCT 8.0.0 locally (experimental branch `dev-native-occt-4`)**
+
+Hippo3D includes an automated build script that downloads, compiles, and installs OCCT 8.0.0 into a project-local directory:
+
+```bash
+cd native
+./build_occt.sh
+```
+
+The script:
+1. Downloads `opencascade-8.0.0.tar.gz` from GitHub releases
+2. Builds OCCT 8.0.0 with **minimal configuration** (no VTK, no tests, Release mode)
+3. Installs into `native/third_party/occt-8.0.0/`
+4. Is idempotent — safe to re-run
+
+If the local OCCT 8.0.0 is present, `CMakeLists.txt` and `FindOpenCASCADE.cmake` will automatically prefer it over the system OCCT. No `OCCT_ROOT` needed.
+
+> ⚠️ OCCT 8.0.0 build takes ~25–40 minutes and produces ~2 GB of binaries. The directory is `.gitignore`d.
 
 ```bash
 export OCCT_ROOT=/path/to/occt
