@@ -13,6 +13,18 @@ if(EXISTS "${LOCAL_OCCT}/lib/cmake/opencascade/OpenCASCADEConfig.cmake")
     list(APPEND CMAKE_PREFIX_PATH "${LOCAL_OCCT}")
     set(OpenCASCADE_DIR "${LOCAL_OCCT}/lib/cmake/opencascade")
     message(STATUS "Using local OCCT 8.0.0: ${LOCAL_OCCT}")
+elseif(DEFINED ENV{OCCT_ROOT})
+    # Windows / user-defined OCCT prefix
+    set(ENV_OCCT_ROOT "$ENV{OCCT_ROOT}")
+    if(EXISTS "${ENV_OCCT_ROOT}/lib/cmake/opencascade/OpenCASCADEConfig.cmake")
+        list(APPEND CMAKE_PREFIX_PATH "${ENV_OCCT_ROOT}")
+        set(OpenCASCADE_DIR "${ENV_OCCT_ROOT}/lib/cmake/opencascade")
+        message(STATUS "Using OCCT from OCCT_ROOT: ${ENV_OCCT_ROOT}")
+    else()
+        # Fallback: old layout without CMake config — rely on Find module
+        list(APPEND CMAKE_PREFIX_PATH "${ENV_OCCT_ROOT}")
+        message(STATUS "OCCT_ROOT set but no CMake config found; using Find module: ${ENV_OCCT_ROOT}")
+    endif()
 else()
     message(STATUS "Local OCCT 8.0.0 not found, falling back to system OCCT")
 endif()
@@ -58,6 +70,15 @@ endif()
 # ---------------------------------------------------------------------------
 # System zlib
 # ---------------------------------------------------------------------------
+# On Windows, OCCT's 3rdparty package often bundles zlib.
+if(WIN32 AND DEFINED ENV{OCCT_ROOT})
+  get_filename_component(_OCCT_PARENT "$ENV{OCCT_ROOT}" DIRECTORY)
+  set(_3RDPARTY_ZLIB "${_OCCT_PARENT}/3rdparty-vc14-64")
+  if(EXISTS "${_3RDPARTY_ZLIB}")
+    list(APPEND CMAKE_PREFIX_PATH "${_3RDPARTY_ZLIB}")
+    message(STATUS "Added 3rdparty prefix for ZLIB search: ${_3RDPARTY_ZLIB}")
+  endif()
+endif()
 find_package(ZLIB REQUIRED)
 
 # ---------------------------------------------------------------------------

@@ -25,18 +25,39 @@ include(FindPackageHandleStandardArgs)
 # 1. Search paths
 # ---------------------------------------------------------------------------
 set(_OCCT_SEARCH_PATHS)
+set(_3RDPARTY_SEARCH_PATHS)
 
 if(WIN32)
+  # Standard OCCT Windows installer / download layout:
+  #   C:\OCCT\opencascade-8.0.0-vc14-64   (OCCT headers + libs)
+  #   C:\OCCT\3rdparty-vc14-64            (zlib, freetype, tbb, etc.)
   list(APPEND _OCCT_SEARCH_PATHS
+    "$ENV{OCCT_ROOT}"
+    "C:/OCCT/opencascade-8.0.0-vc14-64"
+    "C:/OCCT/opencascade-7.9.0-vc14-64"
+    "C:/OCCT/opencascade-7.8.0-vc14-64"
     "C:/OpenCASCADE"
+    "C:/OpenCASCADE-8.0.0"
+    "C:/OpenCASCADE-7.9.0"
     "C:/OpenCASCADE-7.8.0"
     "C:/OpenCASCADE-7.7.0"
     "C:/Program Files/OpenCASCADE"
     "C:/Program Files (x86)/OpenCASCADE"
     "C:/OCCT"
-    "$ENV{OCCT_ROOT}"
     "$ENV{OpenCASCADE_DIR}"
   )
+  # Derive 3rdparty dir from OCCT root (sibling directory)
+  if(DEFINED ENV{OCCT_ROOT})
+    get_filename_component(_OCCT_PARENT "$ENV{OCCT_ROOT}" DIRECTORY)
+    set(_3RDPARTY_CANDIDATE "${_OCCT_PARENT}/3rdparty-vc14-64")
+    if(EXISTS "${_3RDPARTY_CANDIDATE}")
+      list(APPEND _3RDPARTY_SEARCH_PATHS "${_3RDPARTY_CANDIDATE}")
+    endif()
+  endif()
+  # Also try hardcoded C:/OCCT/3rdparty-vc14-64
+  if(EXISTS "C:/OCCT/3rdparty-vc14-64")
+    list(APPEND _3RDPARTY_SEARCH_PATHS "C:/OCCT/3rdparty-vc14-64")
+  endif()
 elseif(APPLE)
   list(APPEND _OCCT_SEARCH_PATHS
     "/opt/homebrew/opt/opencascade"
