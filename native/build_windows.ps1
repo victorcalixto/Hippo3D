@@ -158,6 +158,9 @@ if ($env:OpenCASCADE_DIR) { $occtHints += $env:OpenCASCADE_DIR }
 
 $occtSearchPaths = @(
     "${scriptDir}\third_party\occt-8.0.0",
+    "C:\OCCT\opencascade-8.0.0-vc14-64",
+    "C:\OCCT\opencascade-7.9.0-vc14-64",
+    "C:\OCCT\opencascade-7.8.0-vc14-64",
     "C:\OpenCASCADE-8.0.0",
     "C:\OpenCASCADE-7.9.0",
     "C:\OpenCASCADE-7.8.0",
@@ -170,7 +173,7 @@ $occtSearchPaths = @(
 
 $autoOcct = ""
 foreach ($p in $occtSearchPaths) {
-    # Check standard layout (include/opencascade or inc)
+    # Standard layout: include/opencascade or inc
     if (Test-Path "$p\include\opencascade\BRepPrimAPI_MakeBox.hxx") {
         $autoOcct = $p
         break
@@ -179,20 +182,33 @@ foreach ($p in $occtSearchPaths) {
         $autoOcct = $p
         break
     }
-    # Check prebuilt Windows OCCT packages (win64/vc14 layout)
-    if (Test-Path "$p\win64\vc14\inc\BRepPrimAPI_MakeBox.hxx") {
-        $autoOcct = $p
+    # OCCT Windows installer layout: opencascade-X.X.X-vc14-64 / inc
+    if (Test-Path "$p\opencascade-8.0.0-vc14-64\inc\BRepPrimAPI_MakeBox.hxx") {
+        $autoOcct = "$p\opencascade-8.0.0-vc14-64"
         break
     }
-    if (Test-Path "$p\win64\vc15\inc\BRepPrimAPI_MakeBox.hxx") {
-        $autoOcct = $p
+    if (Test-Path "$p\opencascade-7.9.0-vc14-64\inc\BRepPrimAPI_MakeBox.hxx") {
+        $autoOcct = "$p\opencascade-7.9.0-vc14-64"
+        break
+    }
+    if (Test-Path "$p\opencascade-7.8.0-vc14-64\inc\BRepPrimAPI_MakeBox.hxx") {
+        $autoOcct = "$p\opencascade-7.8.0-vc14-64"
         break
     }
 }
 
 if ($autoOcct) {
     $env:OCCT_ROOT = $autoOcct
-    Write-Host "Auto-detected Windows OCCT: $autoOcct"
+    # Also set 3RDPARTY_DIR if the 3rdparty folder exists next to the OCCT root
+    $occtParent = Split-Path $autoOcct -Parent
+    $thirdPartyDir = Join-Path $occtParent "3rdparty-vc14-64"
+    if (Test-Path $thirdPartyDir) {
+        $env:3RDPARTY_DIR = $thirdPartyDir
+        Write-Host "Auto-detected Windows OCCT: $autoOcct"
+        Write-Host "3rdparty dir: $thirdPartyDir"
+    } else {
+        Write-Host "Auto-detected Windows OCCT: $autoOcct"
+    }
 }
 
 # ---------------------------------------------------------------------------

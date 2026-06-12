@@ -140,6 +140,18 @@ def _windows_libs(module: Path):
     if occt_local.is_dir():
         search_dirs.append(occt_local)
 
+    # Also add OCCT bin/ subdirectory (C:\OCCT\opencascade-8.0.0-vc14-64\bin)
+    occt_root = os.environ.get("OCCT_ROOT", "")
+    if occt_root:
+        occt_bin = Path(occt_root) / "bin"
+        if occt_bin.is_dir():
+            search_dirs.append(occt_bin)
+        # Add sibling 3rdparty-vc14-64 directory for transitive deps
+        occt_parent = Path(occt_root).parent
+        thirdparty_bin = occt_parent / "3rdparty-vc14-64" / "bin"
+        if thirdparty_bin.is_dir():
+            search_dirs.append(thirdparty_bin)
+
     dumpbin = shutil.which("dumpbin")
     dll_names = []
 
@@ -182,12 +194,11 @@ def _windows_libs(module: Path):
                 break
         if not found:
             # Also try OCCT_ROOT subdirectories
-            occt_root = os.environ.get("OCCT_ROOT", "")
             if occt_root:
                 for guess in (
                     Path(occt_root) / "bin" / dll_name,
                     Path(occt_root) / "win64" / "vc14" / "bin" / dll_name,
-                    Path(occt_root) / "win64" / "gcc" / "bin" / dll_name,
+                    Path(occt_root) / "win64" / "vc15" / "bin" / dll_name,
                 ):
                     if guess.is_file():
                         libs.append(guess)
