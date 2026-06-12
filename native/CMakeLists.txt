@@ -70,13 +70,27 @@ endif()
 # ---------------------------------------------------------------------------
 # System zlib
 # ---------------------------------------------------------------------------
-# On Windows, OCCT's 3rdparty package often bundles zlib.
+# On Windows, OCCT's 3rdparty package often bundles zlib in a subfolder
+# like 3rdparty-vc14-64/zlib-1.2.11/.
 if(WIN32 AND DEFINED ENV{OCCT_ROOT})
   get_filename_component(_OCCT_PARENT "$ENV{OCCT_ROOT}" DIRECTORY)
-  set(_3RDPARTY_ZLIB "${_OCCT_PARENT}/3rdparty-vc14-64")
-  if(EXISTS "${_3RDPARTY_ZLIB}")
-    list(APPEND CMAKE_PREFIX_PATH "${_3RDPARTY_ZLIB}")
-    message(STATUS "Added 3rdparty prefix for ZLIB search: ${_3RDPARTY_ZLIB}")
+  file(GLOB _3RDPARTY_DIRS "${_OCCT_PARENT}/3rdparty-vc14-64/*")
+  foreach(_dir IN LISTS _3RDPARTY_DIRS)
+    if(IS_DIRECTORY "${_dir}")
+      # Check if it looks like a zlib install (has include/zlib.h and lib/zlib.lib)
+      if(EXISTS "${_dir}/include/zlib.h" AND EXISTS "${_dir}/lib/zlib.lib")
+        set(ZLIB_ROOT "${_dir}")
+        list(APPEND CMAKE_PREFIX_PATH "${_dir}")
+        message(STATUS "Found bundled zlib in 3rdparty: ${_dir}")
+        break()
+      endif()
+    endif()
+  endforeach()
+  # Also add the top-level 3rdparty dir as a fallback prefix
+  set(_3RDPARTY_TOP "${_OCCT_PARENT}/3rdparty-vc14-64")
+  if(EXISTS "${_3RDPARTY_TOP}")
+    list(APPEND CMAKE_PREFIX_PATH "${_3RDPARTY_TOP}")
+    message(STATUS "Added 3rdparty prefix: ${_3RDPARTY_TOP}")
   endif()
 endif()
 find_package(ZLIB REQUIRED)
