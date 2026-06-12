@@ -4356,7 +4356,7 @@ def create_ellipse_from_2_points(context, p0, p1):
 
 class Hippo3D_PT_MainPanel(Panel):
     bl_label = "Hippo3D"
-    bl_idname = "Hippo3D_PT_main_panel"
+    bl_idname = "HIPPO3D_PT_main_panel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Hippo3D"
@@ -4728,24 +4728,45 @@ def create_arc_from_3_points(context, p0, p1, p2, segments=64):
 # -----------------------------------------------------------------------------
 
 def hippo_load_occ_core():
-    import importlib
+    import importlib.util
+    import os
     import sys
     from pathlib import Path
 
     addon_dir = Path(__file__).resolve().parent
     native_candidates = [
-        addon_dir / "native" / "build",
-        addon_dir / "native" / "linux-x64",
         addon_dir / "native" / "windows-x64",
-        addon_dir / "native" / "macos-x64",
+        addon_dir / "native" / "linux-x64",
         addon_dir / "native" / "macos-arm64",
+        addon_dir / "native" / "macos-x64",
+        addon_dir / "native" / "build",
     ]
 
+    # On Windows, DLLs must be in PATH or next to the .pyd.
+    # We temporarily extend PATH with the native directory so dependent
+    # DLLs (TKernel.dll, etc.) are found without polluting sys.path.
+    _original_path = os.environ.get("PATH", "")
     for native_dir in native_candidates:
-        if native_dir.exists() and str(native_dir) not in sys.path:
-            sys.path.insert(0, str(native_dir))
+        if not native_dir.exists():
+            continue
+        native_str = str(native_dir)
+        if native_str not in _original_path.split(os.pathsep):
+            os.environ["PATH"] = native_str + os.pathsep + _original_path
+        # Find the module file (ABI-tagged or plain)
+        for pattern in ("hippo_occ_core*.pyd", "hippo_occ_core*.so"):
+            matches = sorted(native_dir.glob(pattern))
+            if matches:
+                mod_path = matches[-1]
+                spec = importlib.util.spec_from_file_location(
+                    "hippo_occ_core", str(mod_path)
+                )
+                if spec and spec.loader:
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules["hippo_occ_core"] = module
+                    spec.loader.exec_module(module)
+                    return module
 
-    return importlib.import_module("hippo_occ_core")
+    raise ImportError("hippo_occ_core native module not found in any native/ folder")
 
 
 def hippo_parse_occ_args(context, args_text):
@@ -9115,7 +9136,7 @@ def create_ellipse_from_2_points(context, p0, p1):
 
 class Hippo3D_PT_MainPanel(Panel):
     bl_label = "Hippo3D"
-    bl_idname = "Hippo3D_PT_main_panel"
+    bl_idname = "HIPPO3D_PT_main_panel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Hippo3D"

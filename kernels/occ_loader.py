@@ -1,3 +1,5 @@
+import importlib.util
+import os
 import platform
 import sys
 from pathlib import Path
@@ -62,8 +64,24 @@ def load_occ_core():
     if not module_path:
         raise ImportError(f"Native OCC module not found in {native_dir}")
 
-    sys.path.insert(0, str(native_dir))
+    # Extend PATH / LD_LIBRARY_PATH so dependent DLLs / .so files are found
+    # without polluting sys.path (Blender policy violation).
+    if system == "windows":
+        _original_path = os.environ.get("PATH", "")
+        native_str = str(native_dir)
+        if native_str not in _original_path.split(os.pathsep):
+            os.environ["PATH"] = native_str + os.pathsep + _original_path
+    else:
+        _original = os.environ.get("LD_LIBRARY_PATH", "")
+        native_str = str(native_dir)
+        if native_str not in _original.split(os.pathsep):
+            os.environ["LD_LIBRARY_PATH"] = native_str + os.pathsep + _original
 
-    import hippo_occ_core
+    spec = importlib.util.spec_from_file_location("hippo_occ_core", str(module_path))
+    if not spec or not spec.loader:
+        raise ImportError(f"Could not create module spec for {module_path}")
 
-    return hippo_occ_core
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["hippo_occ_core"] = module
+    spec.loader.exec_module(module)
+    return module
