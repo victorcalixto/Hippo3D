@@ -22,6 +22,8 @@ endif()
 # ---------------------------------------------------------------------------
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
+# Use modern FindPython instead of deprecated FindPythonInterp/FindPythonLibs
+set(PYBIND11_FINDPYTHON ON)
 find_package(pybind11 REQUIRED)
 find_package(OpenCASCADE REQUIRED)
 
