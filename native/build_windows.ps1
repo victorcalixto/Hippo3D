@@ -250,16 +250,29 @@ $cmakeArgs = @(
 # ---------------------------------------------------------------------------
 # Locate and copy artifact
 # ---------------------------------------------------------------------------
-$pydName = "hippo_occ_core.pyd"
-$artifact = Get-ChildItem -Recurse -Filter $pydName build | Select-Object -First 1
+Write-Host ""
+Write-Host "Searching for built module in native/build ..."
 
-if (-not $artifact) {
-    # Fallback: look for any hippo_occ_core.*
-    $artifact = Get-ChildItem -Recurse -Filter "hippo_occ_core.*" build | Select-Object -First 1
+# Possible names: hippo_occ_core.pyd, hippo_occ_core.cp311-win_amd64.pyd,
+# or hippo_occ_core.dll if pybind11 suffix detection failed.
+$patterns = @("hippo_occ_core*.pyd", "hippo_occ_core*.dll")
+$artifact = $null
+foreach ($pat in $patterns) {
+    $matches = Get-ChildItem -Recurse -Filter $pat build
+    if ($matches) {
+        # Prefer shortest/simplest name, but any will work
+        $artifact = $matches | Sort-Object Name | Select-Object -First 1
+        break
+    }
 }
 
 if (-not $artifact) {
-    throw "Build finished, but $pydName was not found in native/build."
+    Write-Host "ERROR: No hippo_occ_core module found in native/build."
+    Write-Host "Files present in build directory:"
+    Get-ChildItem -Recurse build | Where-Object { $_.Name -like "hippo_occ_core*" -or $_.Name -like "*.pyd" -or $_.Name -like "*.dll" } | ForEach-Object {
+        Write-Host "  $($_.FullName)"
+    }
+    throw "Build finished, but hippo_occ_core module was not found in native/build."
 }
 
 $outDir = "$PlatformFolder"
