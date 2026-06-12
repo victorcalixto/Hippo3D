@@ -4,6 +4,8 @@ This document covers building the `hippo_occ_core` native extension for **Linux*
 
 > If you are only interested in the **Linux** build, see [`README_BUILD_LINUX.md`](./README_BUILD_LINUX.md) for a concise Linux-only guide.
 
+> For **Windows-specific** build details (including OCCT installation and common DLL errors), see [`README_BUILD_WINDOWS.md`](./README_BUILD_WINDOWS.md).
+
 ---
 
 ## Table of Contents

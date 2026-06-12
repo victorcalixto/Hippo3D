@@ -64,22 +64,41 @@ def _linux_libs(module: Path):
         print("Error: 'ldd' not found. Cannot discover linked libraries.")
         return []
     libs = []
+    # Candidate directories for "not found" OCCT libraries
+    script_dir = Path(__file__).resolve().parent
+    occt_local = script_dir / "third_party" / "occt-8.0.0" / "lib"
+    search_dirs = []
+    for env_key in ("LD_LIBRARY_PATH", "OCCT_ROOT"):
+        val = os.environ.get(env_key, "")
+        if val:
+            for part in val.split(os.pathsep):
+                p = Path(part)
+                if p.is_dir():
+                    search_dirs.append(p)
+    if occt_local.is_dir():
+        search_dirs.append(occt_local)
     for line in out.splitlines():
         # e.g.  libTKernel.so.7 => /usr/lib/x86_64-linux-gnu/libTKernel.so.7 (0x...)
+        # e.g.  libTKernel.so.8.0 => not found
         if "=>" not in line:
             continue
-        _, rest = line.split("=>", 1)
+        lib_name, rest = line.split("=>", 1)
+        lib_name = lib_name.strip()
+        if not lib_name.lower().startswith("libtk"):
+            continue
         parts = rest.strip().split()
-        if not parts:
-            continue
-        path_str = parts[0]
-        if not path_str.startswith("/"):
-            continue
-        p = Path(path_str)
-        name_lower = p.name.lower()
-        # OCCT libraries always start with libTK (case-insensitive)
-        if name_lower.startswith("libtk"):
-            libs.append(p)
+        if parts and parts[0].startswith("/"):
+            # Resolved absolute path
+            p = Path(parts[0])
+            if p.exists():
+                libs.append(p)
+        else:
+            # "not found" — search candidate directories
+            for d in search_dirs:
+                candidate = d / lib_name
+                if candidate.exists():
+                    libs.append(candidate)
+                    break
     return libs
 
 
@@ -106,52 +125,73 @@ def _macos_libs(module: Path):
 
 
 def _windows_libs(module: Path):
-    """Return list of absolute OCCT .dll paths using dumpbin."""
+    """Return list of absolute OCCT .dll paths using dumpbin or heuristic."""
+    # Candidate directories for OCCT DLLs
+    script_dir = Path(__file__).resolve().parent
+    occt_local = script_dir / "third_party" / "occt-8.0.0" / "bin"
+    search_dirs = []
+    for env_key in ("PATH", "OCCT_ROOT"):
+        val = os.environ.get(env_key, "")
+        if val:
+            for part in val.split(os.pathsep):
+                p = Path(part)
+                if p.is_dir():
+                    search_dirs.append(p)
+    if occt_local.is_dir():
+        search_dirs.append(occt_local)
+
     dumpbin = shutil.which("dumpbin")
-    if not dumpbin:
-        # Fallback: list known OCCT DLLs from OCCT_ROOT bin directory
-        occt_root = os.environ.get("OCCT_ROOT", "")
-        bin_dir = Path(occt_root) / "win64" / "gcc" / "bin" if occt_root else None
-        if not bin_dir or not bin_dir.is_dir():
-            bin_dir = Path(occt_root) / "bin" if occt_root else None
-        if not bin_dir or not bin_dir.is_dir():
-            print("Warning: Cannot find dumpbin or OCCT_ROOT. Skipping Windows DLL bundling.")
-            print("Tip: Run from a Visual Studio Developer Command Prompt.")
-            return []
-        # Heuristic: grab every TK*.dll
-        return sorted(bin_dir.glob("TK*.dll"))
+    dll_names = []
 
-    try:
-        out = subprocess.check_output(
-            [dumpbin, "/dependents", str(module)], text=True
-        )
-    except subprocess.CalledProcessError:
-        return []
+    if dumpbin:
+        try:
+            out = subprocess.check_output(
+                [dumpbin, "/dependents", str(module)], text=True
+            )
+        except subprocess.CalledProcessError:
+            out = ""
 
+        in_deps = False
+        for line in out.splitlines():
+            if "Image has the following dependencies:" in line:
+                in_deps = True
+                continue
+            if in_deps:
+                dll_name = line.strip()
+                if not dll_name or dll_name.lower().startswith("summary"):
+                    break
+                if dll_name.lower().startswith("tk"):
+                    dll_names.append(dll_name)
+
+    # Fallback heuristic: if dumpbin failed or found nothing, grab all TK*.dll from search dirs
+    if not dll_names:
+        for d in search_dirs:
+            for dll in d.glob("TK*.dll"):
+                dll_names.append(dll.name)
+        dll_names = sorted(set(dll_names))
+
+    # Resolve each DLL name to a full path in search_dirs
     libs = []
-    in_deps = False
-    for line in out.splitlines():
-        if "Image has the following dependencies:" in line:
-            in_deps = True
-            continue
-        if in_deps:
-            dll_name = line.strip()
-            if not dll_name or dll_name.lower().startswith("summary"):
+    for dll_name in dll_names:
+        found = False
+        for d in search_dirs:
+            candidate = d / dll_name
+            if candidate.is_file():
+                libs.append(candidate)
+                found = True
                 break
-            if dll_name.lower().startswith("tk"):
-                # Search in PATH and OCCT_ROOT for the full path
-                full = shutil.which(dll_name)
-                if full:
-                    libs.append(Path(full))
-                else:
-                    occt_root = os.environ.get("OCCT_ROOT", "")
-                    for guess in (
-                        Path(occt_root) / "bin" / dll_name if occt_root else None,
-                        Path(occt_root) / "win64" / "gcc" / "bin" / dll_name if occt_root else None,
-                    ):
-                        if guess and guess.is_file():
-                            libs.append(guess)
-                            break
+        if not found:
+            # Also try OCCT_ROOT subdirectories
+            occt_root = os.environ.get("OCCT_ROOT", "")
+            if occt_root:
+                for guess in (
+                    Path(occt_root) / "bin" / dll_name,
+                    Path(occt_root) / "win64" / "vc14" / "bin" / dll_name,
+                    Path(occt_root) / "win64" / "gcc" / "bin" / dll_name,
+                ):
+                    if guess.is_file():
+                        libs.append(guess)
+                        break
     return libs
 
 

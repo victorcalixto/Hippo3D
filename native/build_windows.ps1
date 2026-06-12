@@ -79,9 +79,12 @@ if ($env:OCCT_ROOT) { $occtHints += $env:OCCT_ROOT }
 if ($env:OpenCASCADE_DIR) { $occtHints += $env:OpenCASCADE_DIR }
 
 $occtSearchPaths = @(
-    "C:\OpenCASCADE",
+    "${scriptDir}\third_party\occt-8.0.0",
+    "C:\OpenCASCADE-8.0.0",
+    "C:\OpenCASCADE-7.9.0",
     "C:\OpenCASCADE-7.8.0",
     "C:\OpenCASCADE-7.7.0",
+    "C:\OpenCASCADE",
     "C:\Program Files\OpenCASCADE",
     "C:\Program Files (x86)\OpenCASCADE",
     "C:\OCCT"
@@ -89,11 +92,21 @@ $occtSearchPaths = @(
 
 $autoOcct = ""
 foreach ($p in $occtSearchPaths) {
+    # Check standard layout (include/opencascade or inc)
+    if (Test-Path "$p\include\opencascade\BRepPrimAPI_MakeBox.hxx") {
+        $autoOcct = $p
+        break
+    }
     if (Test-Path "$p\inc\BRepPrimAPI_MakeBox.hxx") {
         $autoOcct = $p
         break
     }
-    if (Test-Path "$p\include\opencascade\BRepPrimAPI_MakeBox.hxx") {
+    # Check prebuilt Windows OCCT packages (win64/vc14 layout)
+    if (Test-Path "$p\win64\vc14\inc\BRepPrimAPI_MakeBox.hxx") {
+        $autoOcct = $p
+        break
+    }
+    if (Test-Path "$p\win64\vc15\inc\BRepPrimAPI_MakeBox.hxx") {
         $autoOcct = $p
         break
     }
