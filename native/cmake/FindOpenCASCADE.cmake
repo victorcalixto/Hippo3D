@@ -99,7 +99,7 @@ endif()
 # ---------------------------------------------------------------------------
 set(_OCCT_LIBS
   TKernel TKMath TKG2d TKG3d TKGeomBase TKGeomAlgo TKBRep TKTopAlgo
-  TKPrim TKMesh TKBool TKShHealing TKFillet TKHLR TKOffset
+  TKPrim TKMesh TKBool TKBO TKShHealing TKFillet TKHLR TKOffset
   TKDESTEP TKDEIGES TKXSBase
 )
 

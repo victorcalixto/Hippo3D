@@ -174,6 +174,8 @@ elseif(WIN32 AND MSVC)
     # MSVC: suppress harmless iterator debug warnings, enable big obj
     target_compile_options(hippo_occ_core PRIVATE /bigobj)
     target_link_options(hippo_occ_core PRIVATE /INCREMENTAL:NO)
+    # OpenNURBS on Windows needs shlwapi.lib for PathFileExists/PathIsDirectory
+    target_link_libraries(hippo_occ_core PRIVATE shlwapi)
 elseif(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     # Windows MinGW (best-effort / future-proofing)
     target_link_options(hippo_occ_core PRIVATE
