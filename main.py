@@ -4502,6 +4502,16 @@ class Hippo3D_PT_MainPanel(Panel):
 
         layout.separator()
         box = layout.box()
+        box.label(text="Import / Export")
+        row = box.row(align=True)
+        row.operator("hippo.import_step", text="Import STEP", icon="IMPORT")
+        row.operator("hippo.export_step", text="Export STEP", icon="EXPORT")
+        row = box.row(align=True)
+        row.operator("hippo.import_3dm", text="Import 3DM", icon="IMPORT")
+        row.operator("hippo.export_3dm", text="Export 3DM", icon="EXPORT")
+
+        layout.separator()
+        box = layout.box()
         box.label(text="How to use")
         box.label(text="Press /, type line, Enter")
         box.label(text="Commands: line, polyline, rectangle, circle, nurbs")
@@ -5984,6 +5994,102 @@ class HIPPO_OT_OCCSplit(Operator):
         return self.execute(context)
 
 
+# ---------------------------------------------------------------------------
+# Import / Export operators (STEP + 3DM)
+# ---------------------------------------------------------------------------
+
+class HIPPO_OT_ExportSTEP(Operator):
+    bl_idname = "hippo.export_step"
+    bl_label = "Export STEP"
+    bl_description = "Export selected OCC shapes to a STEP file"
+    bl_options = {"REGISTER", "UNDO"}
+
+    filepath: StringProperty(subtype="FILE_PATH")
+    filename_ext = ".step"
+    filter_glob: StringProperty(default="*.step;*.stp", options={"HIDDEN"})
+
+    def execute(self, context):
+        if not self.filepath:
+            self.report({"WARNING"}, "No file selected")
+            return {"CANCELLED"}
+        ok, msg = _run_occ_export_step_command(context, f"stepout {self.filepath}")
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+
+class HIPPO_OT_ImportSTEP(Operator):
+    bl_idname = "hippo.import_step"
+    bl_label = "Import STEP"
+    bl_description = "Import shapes from a STEP file"
+    bl_options = {"REGISTER", "UNDO"}
+
+    filepath: StringProperty(subtype="FILE_PATH")
+    filename_ext = ".step"
+    filter_glob: StringProperty(default="*.step;*.stp", options={"HIDDEN"})
+
+    def execute(self, context):
+        if not self.filepath:
+            self.report({"WARNING"}, "No file selected")
+            return {"CANCELLED"}
+        ok, msg = _run_occ_import_step_command(context, f"stepin {self.filepath}")
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+
+class HIPPO_OT_Export3DM(Operator):
+    bl_idname = "hippo.export_3dm"
+    bl_label = "Export 3DM"
+    bl_description = "Export selected OCC shapes to a Rhino .3dm file"
+    bl_options = {"REGISTER", "UNDO"}
+
+    filepath: StringProperty(subtype="FILE_PATH")
+    filename_ext = ".3dm"
+    filter_glob: StringProperty(default="*.3dm", options={"HIDDEN"})
+
+    def execute(self, context):
+        if not self.filepath:
+            self.report({"WARNING"}, "No file selected")
+            return {"CANCELLED"}
+        ok, msg = _run_occ_export_3dm_command(context, f"3dmout {self.filepath}")
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+
+class HIPPO_OT_Import3DM(Operator):
+    bl_idname = "hippo.import_3dm"
+    bl_label = "Import 3DM"
+    bl_description = "Import shapes from a Rhino .3dm file"
+    bl_options = {"REGISTER", "UNDO"}
+
+    filepath: StringProperty(subtype="FILE_PATH")
+    filename_ext = ".3dm"
+    filter_glob: StringProperty(default="*.3dm", options={"HIDDEN"})
+
+    def execute(self, context):
+        if not self.filepath:
+            self.report({"WARNING"}, "No file selected")
+            return {"CANCELLED"}
+        ok, msg = _run_occ_import_3dm_command(context, f"3dmin {self.filepath}")
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+
 # -----------------------------------------------------------------------------
 # OCC display-cache edit guard
 # -----------------------------------------------------------------------------
@@ -6530,7 +6636,7 @@ def hippo_occ_points_off_command(context):
     return hippo_occ_points_off(context, hippo_occ_active_or_parent(context))
 
 
-classes = [HIPPO_OT_OCCTogglePoints, HIPPO_OT_OCCBox, HIPPO_OT_OCCSphere, HIPPO_OT_OCCCylinder, HIPPO_OT_OCCCone, HIPPO_OT_OCCTorus, HIPPO_OT_OCCLoft, HIPPO_OT_OCCRevolve, HIPPO_OT_OCCSweep1, HIPPO_OT_OCCPlanarSrf, HIPPO_OT_OCCEdgeSrf, HIPPO_OT_OCCBooleanFuse, HIPPO_OT_OCCBooleanCut, HIPPO_OT_OCCBooleanCommon, HIPPO_OT_OCCSplit, Hippo3D_OT_Command, Hippo3D_OT_StartLine, Hippo3D_OT_StartPolyline, Hippo3D_OT_StartRectangle, Hippo3D_OT_StartCircle, Hippo3D_OT_StartNurbs, Hippo3D_OT_SetSelectedNurbsDegree, Hippo3D_OT_Hippo3D_Loft, CAD_OT_LoftSurface, CAD_OT_LoftRealModifier, HIPPO_OT_NativeStatus, HIPPO_OT_StartArc, HIPPO_OT_Ellipse, HIPPO_OT_Polygon, HIPPO_OT_Project, HIPPO_OT_Array, HIPPO_OT_Explode, HIPPO_OT_XLine, HIPPO_OT_Offset,  HIPPO_OT_Trim, HIPPO_OT_Hippo3D_PlanarSurface, HIPPO_OT_Hippo3D_EdgeSurface, Hippo3D_OT_Hippo3D_Revolve, Hippo3D_OT_ClearRevolveAxis, Hippo3D_OT_SetRevolveAxis, CAD_OT_PipeSurface, CAD_OT_ExtrudeSurface, Hippo3D_OT_StartCommand, Hippo3D_OT_ToggleOrtho, Hippo3D_OT_ConvertToMesh, Hippo3D_OT_Join, Hippo3D_OT_SaveCPlane, Hippo3D_OT_RestoreCPlane, Hippo3D_OT_StartCPlane3Pt, Hippo3D_OT_StartCPlaneFace, Hippo3D_OT_StartCPlaneCurvePerp, Hippo3D_OT_RotateCPlane, Hippo3D_OT_StartCPlaneRotate3Pt, Hippo3D_OT_ApplyCPlaneAxisRotation, Hippo3D_OT_StartCPlaneAxisRotate, Hippo3D_OT_StartCPlaneMove, Hippo3D_OT_CameraToCPlane, Hippo3D_OT_ViewToCPlane, Hippo3D_OT_StartCPlaneZAxis, Hippo3D_OT_StartCPlaneXAxis, Hippo3D_OT_ToggleCPlaneVisibilityExplicit, Hippo3D_OT_ActivateCPlaneExplicit, Hippo3D_OT_RefreshCPlaneList, Hippo3D_OT_DeleteSelectedCPlane, Hippo3D_OT_ActivateSelectedCPlane, Hippo3D_OT_ToggleSelectedCPlaneVisible, Hippo3D_UL_CPlaneList, Hippo3D_CPlaneListItem, Hippo3D_OT_SetBuiltinCPlane, Hippo3D_OT_RestoreCPlaneByName, Hippo3D_OT_SetCPlaneVisible, Hippo3D_OT_DeleteCPlane, Hippo3D_PT_MainPanel]
+classes = [HIPPO_OT_OCCTogglePoints, HIPPO_OT_OCCBox, HIPPO_OT_OCCSphere, HIPPO_OT_OCCCylinder, HIPPO_OT_OCCCone, HIPPO_OT_OCCTorus, HIPPO_OT_OCCLoft, HIPPO_OT_OCCRevolve, HIPPO_OT_OCCSweep1, HIPPO_OT_OCCPlanarSrf, HIPPO_OT_OCCEdgeSrf, HIPPO_OT_OCCBooleanFuse, HIPPO_OT_OCCBooleanCut, HIPPO_OT_OCCBooleanCommon, HIPPO_OT_OCCSplit, HIPPO_OT_ExportSTEP, HIPPO_OT_ImportSTEP, HIPPO_OT_Export3DM, HIPPO_OT_Import3DM, Hippo3D_OT_Command, Hippo3D_OT_StartLine, Hippo3D_OT_StartPolyline, Hippo3D_OT_StartRectangle, Hippo3D_OT_StartCircle, Hippo3D_OT_StartNurbs, Hippo3D_OT_SetSelectedNurbsDegree, Hippo3D_OT_Hippo3D_Loft, CAD_OT_LoftSurface, CAD_OT_LoftRealModifier, HIPPO_OT_NativeStatus, HIPPO_OT_StartArc, HIPPO_OT_Ellipse, HIPPO_OT_Polygon, HIPPO_OT_Project, HIPPO_OT_Array, HIPPO_OT_Explode, HIPPO_OT_XLine, HIPPO_OT_Offset,  HIPPO_OT_Trim, HIPPO_OT_Hippo3D_PlanarSurface, HIPPO_OT_Hippo3D_EdgeSurface, Hippo3D_OT_Hippo3D_Revolve, Hippo3D_OT_ClearRevolveAxis, Hippo3D_OT_SetRevolveAxis, CAD_OT_PipeSurface, CAD_OT_ExtrudeSurface, Hippo3D_OT_StartCommand, Hippo3D_OT_ToggleOrtho, Hippo3D_OT_ConvertToMesh, Hippo3D_OT_Join, Hippo3D_OT_SaveCPlane, Hippo3D_OT_RestoreCPlane, Hippo3D_OT_StartCPlane3Pt, Hippo3D_OT_StartCPlaneFace, Hippo3D_OT_StartCPlaneCurvePerp, Hippo3D_OT_RotateCPlane, Hippo3D_OT_StartCPlaneRotate3Pt, Hippo3D_OT_ApplyCPlaneAxisRotation, Hippo3D_OT_StartCPlaneAxisRotate, Hippo3D_OT_StartCPlaneMove, Hippo3D_OT_CameraToCPlane, Hippo3D_OT_ViewToCPlane, Hippo3D_OT_StartCPlaneZAxis, Hippo3D_OT_StartCPlaneXAxis, Hippo3D_OT_ToggleCPlaneVisibilityExplicit, Hippo3D_OT_ActivateCPlaneExplicit, Hippo3D_OT_RefreshCPlaneList, Hippo3D_OT_DeleteSelectedCPlane, Hippo3D_OT_ActivateSelectedCPlane, Hippo3D_OT_ToggleSelectedCPlaneVisible, Hippo3D_UL_CPlaneList, Hippo3D_CPlaneListItem, Hippo3D_OT_SetBuiltinCPlane, Hippo3D_OT_RestoreCPlaneByName, Hippo3D_OT_SetCPlaneVisible, Hippo3D_OT_DeleteCPlane, Hippo3D_PT_MainPanel]
 
 
 def _cad_cplane_enum_update(self, context):
@@ -9282,6 +9388,16 @@ class Hippo3D_PT_MainPanel(Panel):
 
         layout.separator()
         box = layout.box()
+        box.label(text="Import / Export")
+        row = box.row(align=True)
+        row.operator("hippo.import_step", text="Import STEP", icon="IMPORT")
+        row.operator("hippo.export_step", text="Export STEP", icon="EXPORT")
+        row = box.row(align=True)
+        row.operator("hippo.import_3dm", text="Import 3DM", icon="IMPORT")
+        row.operator("hippo.export_3dm", text="Export 3DM", icon="EXPORT")
+
+        layout.separator()
+        box = layout.box()
         box.label(text="How to use")
         box.label(text="Press /, type line, Enter")
         box.label(text="Commands: line, polyline, rectangle, circle, nurbs")
@@ -9483,7 +9599,7 @@ class Hippo3D_OT_ToggleCPlaneVisibilityExplicit(Operator):
         return {"FINISHED"}
 
 
-classes = [Hippo3D_OT_Command, Hippo3D_OT_StartLine, Hippo3D_OT_StartPolyline, Hippo3D_OT_StartRectangle, Hippo3D_OT_StartCircle, Hippo3D_OT_StartNurbs, Hippo3D_OT_SetSelectedNurbsDegree, Hippo3D_OT_Hippo3D_Loft, CAD_OT_LoftRealModifier, HIPPO_OT_NativeStatus, HIPPO_OT_StartArc, HIPPO_OT_Ellipse, HIPPO_OT_Polygon, HIPPO_OT_Project, HIPPO_OT_Array, HIPPO_OT_Explode, HIPPO_OT_XLine, HIPPO_OT_Offset,  HIPPO_OT_Trim, HIPPO_OT_Hippo3D_PlanarSurface, HIPPO_OT_Hippo3D_EdgeSurface, Hippo3D_OT_Hippo3D_Revolve, Hippo3D_OT_ClearRevolveAxis, Hippo3D_OT_SetRevolveAxis, CAD_OT_PipeSurface, CAD_OT_ExtrudeSurface, Hippo3D_OT_StartCommand, Hippo3D_OT_ToggleOrtho, Hippo3D_OT_ConvertToMesh, Hippo3D_OT_Join, Hippo3D_OT_SaveCPlane, Hippo3D_OT_RestoreCPlane, Hippo3D_OT_StartCPlane3Pt, Hippo3D_OT_StartCPlaneFace, Hippo3D_OT_StartCPlaneCurvePerp, Hippo3D_OT_RotateCPlane, Hippo3D_OT_StartCPlaneRotate3Pt, Hippo3D_OT_ApplyCPlaneAxisRotation, Hippo3D_OT_StartCPlaneAxisRotate, Hippo3D_OT_StartCPlaneMove, Hippo3D_OT_CameraToCPlane, Hippo3D_OT_ViewToCPlane, Hippo3D_OT_StartCPlaneZAxis, Hippo3D_OT_StartCPlaneXAxis, Hippo3D_OT_ToggleCPlaneVisibilityExplicit, Hippo3D_OT_ActivateCPlaneExplicit, Hippo3D_OT_RefreshCPlaneList, Hippo3D_OT_DeleteSelectedCPlane, Hippo3D_OT_ActivateSelectedCPlane, Hippo3D_OT_ToggleSelectedCPlaneVisible, Hippo3D_UL_CPlaneList, Hippo3D_CPlaneListItem, Hippo3D_OT_SetBuiltinCPlane, Hippo3D_OT_RestoreCPlaneByName, Hippo3D_OT_SetCPlaneVisible, Hippo3D_OT_DeleteCPlane, Hippo3D_PT_MainPanel]
+classes = [HIPPO_OT_ExportSTEP, HIPPO_OT_ImportSTEP, HIPPO_OT_Export3DM, HIPPO_OT_Import3DM, Hippo3D_OT_Command, Hippo3D_OT_StartLine, Hippo3D_OT_StartPolyline, Hippo3D_OT_StartRectangle, Hippo3D_OT_StartCircle, Hippo3D_OT_StartNurbs, Hippo3D_OT_SetSelectedNurbsDegree, Hippo3D_OT_Hippo3D_Loft, CAD_OT_LoftRealModifier, HIPPO_OT_NativeStatus, HIPPO_OT_StartArc, HIPPO_OT_Ellipse, HIPPO_OT_Polygon, HIPPO_OT_Project, HIPPO_OT_Array, HIPPO_OT_Explode, HIPPO_OT_XLine, HIPPO_OT_Offset,  HIPPO_OT_Trim, HIPPO_OT_Hippo3D_PlanarSurface, HIPPO_OT_Hippo3D_EdgeSurface, Hippo3D_OT_Hippo3D_Revolve, Hippo3D_OT_ClearRevolveAxis, Hippo3D_OT_SetRevolveAxis, CAD_OT_PipeSurface, CAD_OT_ExtrudeSurface, Hippo3D_OT_StartCommand, Hippo3D_OT_ToggleOrtho, Hippo3D_OT_ConvertToMesh, Hippo3D_OT_Join, Hippo3D_OT_SaveCPlane, Hippo3D_OT_RestoreCPlane, Hippo3D_OT_StartCPlane3Pt, Hippo3D_OT_StartCPlaneFace, Hippo3D_OT_StartCPlaneCurvePerp, Hippo3D_OT_RotateCPlane, Hippo3D_OT_StartCPlaneRotate3Pt, Hippo3D_OT_ApplyCPlaneAxisRotation, Hippo3D_OT_StartCPlaneAxisRotate, Hippo3D_OT_StartCPlaneMove, Hippo3D_OT_CameraToCPlane, Hippo3D_OT_ViewToCPlane, Hippo3D_OT_StartCPlaneZAxis, Hippo3D_OT_StartCPlaneXAxis, Hippo3D_OT_ToggleCPlaneVisibilityExplicit, Hippo3D_OT_ActivateCPlaneExplicit, Hippo3D_OT_RefreshCPlaneList, Hippo3D_OT_DeleteSelectedCPlane, Hippo3D_OT_ActivateSelectedCPlane, Hippo3D_OT_ToggleSelectedCPlaneVisible, Hippo3D_UL_CPlaneList, Hippo3D_CPlaneListItem, Hippo3D_OT_SetBuiltinCPlane, Hippo3D_OT_RestoreCPlaneByName, Hippo3D_OT_SetCPlaneVisible, Hippo3D_OT_DeleteCPlane, Hippo3D_PT_MainPanel]
 
 
 def _cad_cplane_enum_update(self, context):
