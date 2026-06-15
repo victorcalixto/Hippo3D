@@ -124,85 +124,188 @@ def _macos_libs(module: Path):
     return libs
 
 
-def _windows_libs(module: Path):
-    """Return list of absolute OCCT .dll paths using dumpbin or heuristic."""
-    # Candidate directories for OCCT DLLs
+def _discover_occt_root():
+    """Discover the OCCT installation root from common Windows locations."""
     script_dir = Path(__file__).resolve().parent
-    occt_local = script_dir / "third_party" / "occt-8.0.0" / "bin"
+    candidates = []
+
+    # Prefer explicit OCCT_ROOT
+    occt_root_env = os.environ.get("OCCT_ROOT", "")
+    if occt_root_env:
+        candidates.append(Path(occt_root_env))
+
+    # Auto-detect C:\OCCT\opencascade-8.0.0-vc14-64
+    candidates.append(Path("C:/OCCT/opencascade-8.0.0-vc14-64"))
+
+    # Local third_party fallback
+    candidates.append(script_dir / "third_party" / "occt-8.0.0")
+
+    for root in candidates:
+        if root.is_dir() and any(
+            (root / sub).is_dir() for sub in ("inc", "include", "win64", "bin")
+        ):
+            return root.resolve()
+    return None
+
+
+def _windows_search_dirs(occt_root: Path | None):
+    """Build a list of directories likely to contain OCCT and 3rdparty DLLs."""
     search_dirs = []
-    for env_key in ("PATH", "OCCT_ROOT"):
+
+    # OCCT runtime libraries
+    if occt_root:
+        for sub in (
+            occt_root / "win64" / "vc14" / "bin",
+            occt_root / "win64" / "vc15" / "bin",
+            occt_root / "bin",
+            occt_root,
+        ):
+            if sub.is_dir():
+                search_dirs.append(sub)
+
+        # Sibling 3rdparty-vc14-64 directories (OCCT Windows installer layout)
+        for parent in (occt_root.parent, occt_root.parent.parent):
+            tp = parent / "3rdparty-vc14-64"
+            if tp.is_dir():
+                # Recursively collect every directory that contains DLLs
+                for sub in tp.rglob("*"):
+                    if sub.is_dir() and any(sub.glob("*.dll")):
+                        search_dirs.append(sub)
+                break
+
+    # Allow user to add extra dirs via PATH / OCCT_ROOT
+    for env_key in ("OCCT_DLL_PATH", "PATH"):
         val = os.environ.get(env_key, "")
         if val:
             for part in val.split(os.pathsep):
                 p = Path(part)
                 if p.is_dir():
                     search_dirs.append(p)
-    if occt_local.is_dir():
-        search_dirs.append(occt_local)
 
-    # Also add OCCT bin/ subdirectory (C:\OCCT\opencascade-8.0.0-vc14-64\bin)
-    occt_root = os.environ.get("OCCT_ROOT", "")
-    if occt_root:
-        occt_bin = Path(occt_root) / "bin"
-        if occt_bin.is_dir():
-            search_dirs.append(occt_bin)
-        # Add sibling 3rdparty-vc14-64 directory for transitive deps
-        occt_parent = Path(occt_root).parent
-        thirdparty_bin = occt_parent / "3rdparty-vc14-64" / "bin"
-        if thirdparty_bin.is_dir():
-            search_dirs.append(thirdparty_bin)
+    return search_dirs
 
+
+def _find_dumpbin():
+    """Return the path to dumpbin.exe, searching common VS locations."""
     dumpbin = shutil.which("dumpbin")
-    dll_names = []
-
     if dumpbin:
-        try:
-            out = subprocess.check_output(
-                [dumpbin, "/dependents", str(module)], text=True
-            )
-        except subprocess.CalledProcessError:
-            out = ""
+        return dumpbin
 
-        in_deps = False
-        for line in out.splitlines():
-            if "Image has the following dependencies:" in line:
-                in_deps = True
+    # Common Visual Studio / BuildTools layout patterns
+    program_files = [
+        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")),
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files")),
+    ]
+    for pf in program_files:
+        for edition in ("BuildTools", "Community", "Professional", "Enterprise"):
+            base = pf / "Microsoft Visual Studio" / "2022" / edition / "VC" / "Tools" / "MSVC"
+            if not base.is_dir():
                 continue
-            if in_deps:
-                dll_name = line.strip()
-                if not dll_name or dll_name.lower().startswith("summary"):
-                    break
-                if dll_name.lower().startswith("tk"):
-                    dll_names.append(dll_name)
+            for sub in base.rglob("Hostx64/x64/dumpbin.exe"):
+                return str(sub)
+            for sub in base.rglob("x64/dumpbin.exe"):
+                return str(sub)
+    return None
 
-    # Fallback heuristic: if dumpbin failed or found nothing, grab all TK*.dll from search dirs
-    if not dll_names:
+
+def _windows_dependencies(dll_path: Path):
+    """Return the list of direct dependent DLL names for a Windows binary."""
+    dumpbin = _find_dumpbin()
+    if not dumpbin:
+        return []
+    try:
+        out = subprocess.check_output(
+            [dumpbin, "/dependents", str(dll_path)], text=True
+        )
+    except subprocess.CalledProcessError:
+        return []
+
+    names = []
+    in_deps = False
+    for line in out.splitlines():
+        if "Image has the following dependencies:" in line:
+            in_deps = True
+            continue
+        if in_deps:
+            dll_name = line.strip()
+            if not dll_name or dll_name.lower().startswith("summary"):
+                break
+            names.append(dll_name)
+    return names
+
+
+# Names that are not system/runtime DLLs and should be bundled when discovered.
+_THIRDPARTY_DLL_PATTERNS = {
+    "tbb12.dll", "tbb.dll", "jemalloc.dll", "openvr_api.dll",
+    "freetype.dll", "freetype6.dll", "freeimage.dll",
+    "avcodec-57.dll", "avformat-57.dll", "avutil-55.dll", "swscale-4.dll",
+    "zlib.dll", "zlib1.dll", "winmm.dll",
+}
+
+
+def _should_bundle_dll(name: str):
+    """Return True for OCCT TK* DLLs and known 3rdparty runtime DLLs."""
+    low = name.lower()
+    if low.startswith("tk"):
+        return True
+    if low in _THIRDPARTY_DLL_PATTERNS:
+        return True
+    return False
+
+
+def _windows_resolve(name: str, search_dirs):
+    """Resolve a DLL name to a full path inside search_dirs."""
+    for d in search_dirs:
+        candidate = d / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _windows_libs(module: Path):
+    """Return list of absolute OCCT/3rdparty .dll paths using dumpbin plus recursion."""
+    occt_root = _discover_occt_root()
+    search_dirs = _windows_search_dirs(occt_root)
+
+    # Seed with direct dependents of the built module
+    queue = list(_windows_dependencies(module))
+    found_names = set()
+    libs = []
+
+    while queue:
+        name = queue.pop(0)
+        low = name.lower()
+        if low in found_names:
+            continue
+        found_names.add(low)
+
+        if not _should_bundle_dll(name):
+            continue
+
+        resolved = _windows_resolve(name, search_dirs)
+        if resolved:
+            libs.append(resolved)
+            # Recurse into this DLL's own dependents
+            for dep in _windows_dependencies(resolved):
+                if dep.lower() not in found_names:
+                    queue.append(dep)
+        else:
+            print(f"Warning: could not locate {name}")
+
+    # Fallback heuristic: if dumpbin is not available or found nothing useful,
+    # collect all candidate DLLs from the discovered OCCT and 3rdparty trees.
+    if not libs:
+        fallback_names = set()
         for d in search_dirs:
             for dll in d.glob("TK*.dll"):
-                dll_names.append(dll.name)
-        dll_names = sorted(set(dll_names))
+                if dll.name.lower() not in found_names and dll.name.lower() not in fallback_names:
+                    fallback_names.add(dll.name.lower())
+                    libs.append(dll)
+            for dll in d.glob("*.dll"):
+                if _should_bundle_dll(dll.name) and dll.name.lower() not in found_names and dll.name.lower() not in fallback_names:
+                    fallback_names.add(dll.name.lower())
+                    libs.append(dll)
 
-    # Resolve each DLL name to a full path in search_dirs
-    libs = []
-    for dll_name in dll_names:
-        found = False
-        for d in search_dirs:
-            candidate = d / dll_name
-            if candidate.is_file():
-                libs.append(candidate)
-                found = True
-                break
-        if not found:
-            # Also try OCCT_ROOT subdirectories
-            if occt_root:
-                for guess in (
-                    Path(occt_root) / "bin" / dll_name,
-                    Path(occt_root) / "win64" / "vc14" / "bin" / dll_name,
-                    Path(occt_root) / "win64" / "vc15" / "bin" / dll_name,
-                ):
-                    if guess.is_file():
-                        libs.append(guess)
-                        break
     return libs
 
 

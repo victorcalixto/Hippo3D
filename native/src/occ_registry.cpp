@@ -1,5 +1,6 @@
 #include "occ_registry.hpp"
 
+#include <array>
 #include <map>
 #include <stdexcept>
 
@@ -45,14 +46,16 @@ int transform_shape(int shape_id, const std::array<double, 16>& matrix) {
     TopoDS_Shape shape = get_shape(shape_id);
     gp_Trsf trsf;
     // Row-major 4x4 matrix: the last column is translation.
+    // MSVC needs explicit std::array::operator[] on a const reference, so use .data().
+    const double* m = matrix.data();
     trsf.SetValues(
-        matrix[0],  matrix[1],  matrix[2],  matrix[3],
-        matrix[4],  matrix[5],  matrix[6],  matrix[7],
-        matrix[8],  matrix[9],  matrix[10], matrix[11]
+        m[0],  m[1],  m[2],  m[3],
+        m[4],  m[5],  m[6],  m[7],
+        m[8],  m[9],  m[10], m[11]
     );
     // gp_Trsf.SetValues ignores the last column (translation) in this overload.
     // We must set translation explicitly from the 4th column.
-    gp_Vec translation(matrix[3], matrix[7], matrix[11]);
+    gp_Vec translation(m[3], m[7], m[11]);
     if (translation.Magnitude() > 1e-12) {
         trsf.SetTranslationPart(translation);
     }

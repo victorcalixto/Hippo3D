@@ -193,10 +193,13 @@ cd native
 The script will:
 
 1. Detect or install `pybind11`.
-2. Search common OCCT installation directories.
-3. Configure with `Visual Studio 17 2022` or `Ninja Multi-Config`.
-4. Build a **Release** configuration.
-5. Copy the `.pyd` module to `native/windows-x64/`.
+2. Detect a matching Python development tree for headers/libs (required because Blender's bundled Python has no `include/Python.h`).
+3. Search common OCCT installation directories.
+4. Configure with `Visual Studio 17 2022` or `Ninja Multi-Config`.
+5. Build a **Release** configuration.
+6. Copy the `.pyd` module to `native/windows-x64/`.
+7. Run `bundle_occt.py` to copy all required OCCT and 3rdparty DLLs (including transitive dependencies such as TBB, FreeImage, FreeType, etc.).
+8. Copy `python3.dll` and `python313.dll` from the Blender installation so the folder is self-contained.
 
 ### With Custom Python Path
 
@@ -226,9 +229,11 @@ Open `native/build/hippo_occ_core.sln` in Visual Studio and build the `Release` 
 
 ### Notes
 
+- For a detailed step-by-step Windows guide, see [`COMPILE_ON_WINDOWS.md`](./COMPILE_ON_WINDOWS.md).
 - **MinGW** is listed as a future target in the PowerShell script but is currently experimental.
 - The resulting binary is `hippo_occ_core.pyd` (a Python extension DLL).
 - Make sure to build with the **same Python version** that ships with Blender to avoid ABI mismatches.
+- After building, run `..\package_addon.ps1` from the project root to produce a self-contained installable ZIP.
 
 ---
 
@@ -297,7 +302,8 @@ cmake --build build
 
 To distribute Hippo3D without requiring users to install OCCT, you can bundle the OCCT shared libraries alongside the native module.
 
-After building:
+After building, the Windows build script automatically bundles libraries.
+On other platforms, run:
 
 ```bash
 cd native
@@ -307,20 +313,13 @@ python bundle_occt.py
 The script:
 
 1. Discovers the OCCT libraries your built module links to (`ldd` / `otool -L` / `dumpbin`).
-2. Copies them into `native/<platform>/`.
-3. Resolves symbolic links so the shipped files are real binaries.
+2. Recursively resolves transitive dependencies (e.g. TBB, FreeImage, FreeType, jemalloc, FFmpeg, zlib on Windows).
+3. Copies them into `native/<platform>/`.
+4. Resolves symbolic links so the shipped files are real binaries.
 
-### Platform-Specific Library Names
+On Windows, `bundle_occt.py` will locate `dumpbin.exe` even when it is not on `PATH` by searching common Visual Studio / BuildTools installation directories.
 
-| OS | Libraries |
-|---|---|
-| Linux | `libTKernel.so.7`, `libTKMath.so.7`, … |
-| macOS | `libTKernel.dylib`, `libTKMath.dylib`, … |
-| Windows | `TKernel.dll`, `TKMath.dll`, … |
-| FreeBSD | `libTKernel.so.7`, … |
-| OpenBSD | `libTKernel.so.X.Y`, … |
-
-> **Future improvement:** The bundling script currently requires manual execution. A future release will integrate this as an automatic post-build step and also handle transitive dependencies (TBB, FreeImage, etc.) more robustly.
+> **Note:** The Windows build script (`build_windows.ps1`) runs `bundle_occt.py` automatically and also copies the required Blender Python runtime DLLs (`python3.dll`, `python313.dll`) into `native/windows-x64/`.
 
 ---
 
