@@ -4421,6 +4421,40 @@ class Hippo3D_PT_MainPanel(Panel):
         col.operator("cad.planarsrf", text="Planar Surface", icon="MESH_PLANE")
         col.operator("cad.hippo_native_status", text="Native C Backend Status")
 
+        col.separator()
+        col.label(text="OCC Primitives")
+        col.prop(context.scene, "hippo_occ_box_width", text="Box W")
+        col.prop(context.scene, "hippo_occ_box_depth", text="Box D")
+        col.prop(context.scene, "hippo_occ_box_height", text="Box H")
+        col.operator("cad.occ_box", text="OCC Box", icon="MESH_CUBE")
+        col.prop(context.scene, "hippo_occ_sphere_radius", text="Sphere R")
+        col.operator("cad.occ_sphere", text="OCC Sphere", icon="MESH_UVSPHERE")
+        col.prop(context.scene, "hippo_occ_cylinder_radius", text="Cyl R")
+        col.prop(context.scene, "hippo_occ_cylinder_height", text="Cyl H")
+        col.operator("cad.occ_cylinder", text="OCC Cylinder", icon="MESH_CYLINDER")
+        col.prop(context.scene, "hippo_occ_cone_radius1", text="Cone R1")
+        col.prop(context.scene, "hippo_occ_cone_radius2", text="Cone R2")
+        col.prop(context.scene, "hippo_occ_cone_height", text="Cone H")
+        col.operator("cad.occ_cone", text="OCC Cone")
+        col.prop(context.scene, "hippo_occ_torus_major", text="Torus Major")
+        col.prop(context.scene, "hippo_occ_torus_minor", text="Torus Minor")
+        col.operator("cad.occ_torus", text="OCC Torus")
+
+        col.separator()
+        col.label(text="OCC Boolean Operations")
+        col.operator("cad.occ_boolean_fuse", text="Boolean Union (Fuse)")
+        col.operator("cad.occ_boolean_cut", text="Boolean Difference (Cut)")
+        col.operator("cad.occ_boolean_common", text="Boolean Intersection")
+
+        col.separator()
+        col.label(text="OCC Surface / Trim")
+        col.operator("cad.occ_loft", text="OCC Loft")
+        col.operator("cad.occ_revolve", text="OCC Revolve")
+        col.operator("cad.occ_sweep1", text="OCC Sweep")
+        col.operator("cad.occ_planar_srf", text="OCC Planar Surface")
+        col.operator("cad.occ_edge_srf", text="OCC Edge Surface")
+        col.operator("cad.occ_split", text="OCC Split")
+        col.operator("cad.occ_toggle_points", text="Toggle Control Points")
 
         layout.separator()
         box = layout.box()
@@ -4609,6 +4643,109 @@ class Hippo3D_OT_ToggleCPlaneVisibilityExplicit(Operator):
         return {"FINISHED"}
 
 
+
+
+# -----------------------------------------------------------------------------
+# Toolbar tools
+# -----------------------------------------------------------------------------
+
+class Hippo3D_WST_LineTool(WorkSpaceTool):
+    bl_space_type = "VIEW_3D"
+    bl_context_mode = "OBJECT"
+    bl_idname = "cad_blender.line_tool"
+    bl_label = "Line"
+    bl_description = "Start Line command"
+    bl_icon = (ICON_DIR / "line").as_posix()
+    bl_widget = None
+    bl_keymap = (("cad.start_line", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
+
+
+class Hippo3D_WST_PolylineTool(WorkSpaceTool):
+    bl_space_type = "VIEW_3D"
+    bl_context_mode = "OBJECT"
+    bl_idname = "cad_blender.polyline_tool"
+    bl_label = "Polyline"
+    bl_description = "Start Polyline command"
+    bl_icon = (ICON_DIR / "polyline").as_posix()
+    bl_widget = None
+    bl_keymap = (("cad.start_polyline", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
+
+
+class Hippo3D_WST_RectangleTool(WorkSpaceTool):
+    bl_space_type = "VIEW_3D"
+    bl_context_mode = "OBJECT"
+    bl_idname = "cad_blender.rectangle_tool"
+    bl_label = "Rectangle"
+    bl_description = "Start Rectangle command"
+    bl_icon = (ICON_DIR / "rectangle").as_posix()
+    bl_widget = None
+    bl_keymap = (("cad.start_rectangle", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
+
+
+class Hippo3D_WST_CircleTool(WorkSpaceTool):
+    bl_space_type = "VIEW_3D"
+    bl_context_mode = "OBJECT"
+    bl_idname = "cad_blender.circle_tool"
+    bl_label = "Circle"
+    bl_description = "Start Circle command"
+    bl_icon = (ICON_DIR / "circle").as_posix()
+    bl_widget = None
+    bl_keymap = (("cad.start_circle", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
+
+
+class Hippo3D_WST_NurbsTool(WorkSpaceTool):
+    bl_space_type = "VIEW_3D"
+    bl_context_mode = "OBJECT"
+    bl_idname = "cad_blender.nurbs_tool"
+    bl_label = "NURBS Curve"
+    bl_description = "Start NURBS Curve command"
+    bl_icon = (ICON_DIR / "nurbs").as_posix()
+    bl_widget = None
+    bl_keymap = (("cad.start_nurbs", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
+
+
+class Hippo3D_WST_ArcTool(WorkSpaceTool):
+    bl_space_type = "VIEW_3D"
+    bl_context_mode = "OBJECT"
+    bl_idname = "hippo3d.arc_tool"
+    bl_label = "Arc"
+    bl_description = "Start Arc command"
+    bl_icon = (ICON_DIR / "arc").as_posix()
+    bl_widget = None
+    bl_keymap = (("cad.start_arc", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
+
+
+class Hippo3D_WST_EllipseTool(WorkSpaceTool):
+    bl_space_type = "VIEW_3D"
+    bl_context_mode = "OBJECT"
+    bl_idname = "hippo3d.ellipse_tool"
+    bl_label = "Ellipse"
+    bl_description = "Start Ellipse command"
+    bl_icon = (ICON_DIR / "ellipse").as_posix()
+    bl_widget = None
+    bl_keymap = (("cad.ellipse", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
+
+
+class Hippo3D_WST_PolygonTool(WorkSpaceTool):
+    bl_space_type = "VIEW_3D"
+    bl_context_mode = "OBJECT"
+    bl_idname = "hippo3d.polygon_tool"
+    bl_label = "Polygon"
+    bl_description = "Create Polygon"
+    bl_icon = (ICON_DIR / "polygon").as_posix()
+    bl_widget = None
+    bl_keymap = (("cad.polygon", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
+
+
+class Hippo3D_WST_XLineTool(WorkSpaceTool):
+    bl_space_type = "VIEW_3D"
+    bl_context_mode = "OBJECT"
+    bl_idname = "hippo3d.xline_tool"
+    bl_label = "XLine"
+    bl_description = "Start XLine command"
+    bl_icon = (ICON_DIR / "xline").as_posix()
+    bl_widget = None
+    bl_keymap = (("cad.xline", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
 
 
 # -----------------------------------------------------------------------------
@@ -6660,6 +6797,19 @@ def register_props():
     bpy.types.Scene.hippo_array_dz = FloatProperty(name="Array Z", default=0.0, soft_min=-100.0, soft_max=100.0)
     bpy.types.Scene.hippo_ellipse_rx = FloatProperty(name="Ellipse Radius X", default=2.0, min=0.001, soft_max=100.0)
     bpy.types.Scene.hippo_ellipse_ry = FloatProperty(name="Ellipse Radius Y", default=1.0, min=0.001, soft_max=100.0)
+
+    bpy.types.Scene.hippo_occ_box_width = FloatProperty(name="OCC Box Width", default=1.0, min=0.001, soft_max=100.0)
+    bpy.types.Scene.hippo_occ_box_depth = FloatProperty(name="OCC Box Depth", default=1.0, min=0.001, soft_max=100.0)
+    bpy.types.Scene.hippo_occ_box_height = FloatProperty(name="OCC Box Height", default=1.0, min=0.001, soft_max=100.0)
+    bpy.types.Scene.hippo_occ_sphere_radius = FloatProperty(name="OCC Sphere Radius", default=1.0, min=0.001, soft_max=100.0)
+    bpy.types.Scene.hippo_occ_cylinder_radius = FloatProperty(name="OCC Cylinder Radius", default=1.0, min=0.001, soft_max=100.0)
+    bpy.types.Scene.hippo_occ_cylinder_height = FloatProperty(name="OCC Cylinder Height", default=2.0, min=0.001, soft_max=100.0)
+    bpy.types.Scene.hippo_occ_cone_radius1 = FloatProperty(name="OCC Cone Radius 1", default=1.0, min=0.001, soft_max=100.0)
+    bpy.types.Scene.hippo_occ_cone_radius2 = FloatProperty(name="OCC Cone Radius 2", default=0.0, min=0.0, soft_max=100.0)
+    bpy.types.Scene.hippo_occ_cone_height = FloatProperty(name="OCC Cone Height", default=2.0, min=0.001, soft_max=100.0)
+    bpy.types.Scene.hippo_occ_torus_major = FloatProperty(name="OCC Torus Major", default=3.0, min=0.001, soft_max=100.0)
+    bpy.types.Scene.hippo_occ_torus_minor = FloatProperty(name="OCC Torus Minor", default=1.0, min=0.001, soft_max=100.0)
+
     bpy.types.Scene.cad_osnap_endpoint = BoolProperty(name="Endpoint", default=True)
     bpy.types.Scene.cad_osnap_midpoint = BoolProperty(name="Midpoint", default=True)
     bpy.types.Scene.cad_osnap_nearest = BoolProperty(name="Nearest", default=True)
@@ -6730,7 +6880,7 @@ def register_props():
 
 
 def unregister_props():
-    for name in ["cad_osnap_endpoint", "cad_osnap_midpoint", "cad_osnap_nearest", "cad_osnap_center", "cad_osnap_grid", "cad_ortho", "cad_grid_size", "cad_snap_radius", "cad_active_cplane_name", "cad_cplane_save_name", "cad_cplanes_json", "cad_show_cplane_visuals", "cad_show_cplane_grid_visuals", "cad_show_cplane_labels", "cad_cplane_visual_grid_count", "cad_cplane_visual_grid_spacing", "cad_cplane_visual_axis_length", "cad_cplane_visibility_json", "cad_cplane_items", "cad_cplane_index", "cad_active_cplane_dropdown", "cad_current_cplane_visible", "cad_cplane", "cad_cplane_rotate_angle", "cad_cplane_axis_rotation_angle", "cad_cplane_axis_rotation_name", "cad_cplane_axis_rotation_json", "cad_cplane_camera_distance", "cad_nurbs_degree", "cad_selected_nurbs_degree", "cad_loft_samples", "cad_surface_samples", "cad_extrude_distance", "cad_pipe_radius", "cad_pipe_resolution", "cad_revolve_angle", "cad_revolve_steps", "cad_sweep_rail_samples", "cad_sweep_profile_samples", "cad_revolve_axis_json", "hippo_offset_distance", "hippo_xline_length", "hippo_array_count", "hippo_array_dx", "hippo_array_dy", "hippo_array_dz", "hippo_ellipse_rx", "hippo_ellipse_ry", "hippo_polygon_sides", "hippo_polygon_radius", "hippo_fillet_radius", "hippo_trim_tolerance"]:
+    for name in ["cad_osnap_endpoint", "cad_osnap_midpoint", "cad_osnap_nearest", "cad_osnap_center", "cad_osnap_grid", "cad_ortho", "cad_grid_size", "cad_snap_radius", "cad_active_cplane_name", "cad_cplane_save_name", "cad_cplanes_json", "cad_show_cplane_visuals", "cad_show_cplane_grid_visuals", "cad_show_cplane_labels", "cad_cplane_visual_grid_count", "cad_cplane_visual_grid_spacing", "cad_cplane_visual_axis_length", "cad_cplane_visibility_json", "cad_cplane_items", "cad_cplane_index", "cad_active_cplane_dropdown", "cad_current_cplane_visible", "cad_cplane", "cad_cplane_rotate_angle", "cad_cplane_axis_rotation_angle", "cad_cplane_axis_rotation_name", "cad_cplane_axis_rotation_json", "cad_cplane_camera_distance", "cad_nurbs_degree", "cad_selected_nurbs_degree", "cad_loft_samples", "cad_surface_samples", "cad_extrude_distance", "cad_pipe_radius", "cad_pipe_resolution", "cad_revolve_angle", "cad_revolve_steps", "cad_sweep_rail_samples", "cad_sweep_profile_samples", "cad_revolve_axis_json", "hippo_offset_distance", "hippo_xline_length", "hippo_array_count", "hippo_array_dx", "hippo_array_dy", "hippo_array_dz", "hippo_ellipse_rx", "hippo_ellipse_ry", "hippo_polygon_sides", "hippo_polygon_radius", "hippo_fillet_radius", "hippo_trim_tolerance", "hippo_occ_box_width", "hippo_occ_box_depth", "hippo_occ_box_height", "hippo_occ_sphere_radius", "hippo_occ_cylinder_radius", "hippo_occ_cylinder_height", "hippo_occ_cone_radius1", "hippo_occ_cone_radius2", "hippo_occ_cone_height", "hippo_occ_torus_major", "hippo_occ_torus_minor"]:
         if hasattr(bpy.types.Scene, name):
             delattr(bpy.types.Scene, name)
 
@@ -9240,462 +9390,6 @@ def create_ellipse_from_2_points(context, p0, p1):
     )
 
 
-class Hippo3D_PT_MainPanel(Panel):
-    bl_label = "Hippo3D"
-    bl_idname = "HIPPO3D_PT_main_panel"
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "Hippo3D"
-
-    def draw(self, context):
-        layout = self.layout
-        col = layout.column(align=True)
-        col.label(text="Commands")
-        col.operator("cad.start_command", text="Hippo Command Line  Ctrl+/", icon="CONSOLE")
-        col.separator()
-        col.label(text="Curve Creation")
-        col.operator("cad.start_line", text="Line", icon="CURVE_PATH")
-        col.operator("cad.start_polyline", text="Polyline", icon="IPO_LINEAR")
-        col.operator("cad.start_rectangle", text="Rectangle", icon="MESH_PLANE")
-        col.operator("cad.start_circle", text="Circle", icon="MESH_CIRCLE")
-        col.operator("cad.start_arc", text="Arc")
-        col.prop(context.scene, "hippo_ellipse_ry", text="Ellipse Secondary Radius")
-        col.operator("cad.ellipse", text="Ellipse")
-        col.prop(context.scene, "hippo_polygon_sides", text="Polygon Sides")
-        col.operator("cad.polygon", text="Polygon")
-        col.operator("cad.start_nurbs", text="NURBS Curve", icon="CURVE_BEZCURVE")
-        col.prop(context.scene, "hippo_xline_length", text="XLine Length")
-        col.operator("cad.xline", text="XLine")
-
-        col.separator()
-        col.label(text="Curve Modification")
-        col.prop(context.scene, "hippo_offset_distance", text="Offset Distance")
-        col.operator("cad.offset", text="Offset")
-        col.prop(context.scene, "hippo_trim_tolerance", text="Trim Tolerance")
-        col.operator("cad.trim", text="Trim")
-        col.operator("cad.explode", text="Explode")
-        col.operator("cad.project", text="Project")
-        col.prop(context.scene, "cad_nurbs_degree", text="NURBS Degree")
-        col.prop(context.scene, "cad_selected_nurbs_degree", text="Selected Degree")
-        col.operator("cad.set_selected_nurbs_degree", text="Set Selected Degree")
-        col.operator("cad.convert_to_mesh", text="Convert to Mesh", icon="MESH_DATA")
-        col.operator("cad.join", text="Join", icon="AUTOMERGE_OFF")
-
-        col.separator()
-        col.label(text="Object Tools")
-        col.prop(context.scene, "hippo_array_count", text="Array Count")
-        col.prop(context.scene, "hippo_array_dx", text="Array X")
-        col.prop(context.scene, "hippo_array_dy", text="Array Y")
-        col.prop(context.scene, "hippo_array_dz", text="Array Z")
-        col.operator("cad.array", text="Array")
-        col.label(text="Surface-Like Operations")
-        col.prop(context.scene, "cad_loft_samples", text="Loft Samples")
-        col.operator("cad.loft_surface", text="Loft Surface", icon="SURFACE_DATA")
-        col.separator()
-        col.prop(context.scene, "cad_surface_samples", text="Samples")
-        col.prop(context.scene, "cad_extrude_distance", text="Extrude Distance")
-        col.operator("cad.extrude_surface", text="Extrude", icon="MOD_SOLIDIFY")
-        col.prop(context.scene, "cad_pipe_radius", text="Pipe Radius")
-        col.prop(context.scene, "cad_pipe_resolution", text="Pipe Resolution")
-        col.operator("cad.pipe_surface", text="Pipe", icon="CURVE_DATA")
-        col.prop(context.scene, "cad_revolve_angle", text="Revolve Degree", slider=True)
-        col.prop(context.scene, "cad_revolve_steps", text="Revolve Steps")
-        col.operator("cad.set_revolve_axis", text="Set Revolve Axis")
-        col.operator("cad.clear_revolve_axis", text="Clear Revolve Axis")
-        col.operator("cad.revolve_surface", text="Revolve", icon="MOD_SCREW")
-        col.operator("cad.edgesrf", text="Edge Surface", icon="SURFACE_DATA")
-        col.operator("cad.planarsrf", text="Planar Surface", icon="MESH_PLANE")
-        col.operator("cad.hippo_native_status", text="Native C Backend Status")
-
-
-        layout.separator()
-        box = layout.box()
-        box.label(text="CPlanes")
-
-        sync_cplane_dropdown(context)
-        box.prop(context.scene, "cad_active_cplane_dropdown", text="Active")
-
-        box.prop(context.scene, "cad_cplane_save_name", text="Name")
-        row = box.row(align=True)
-        row.operator("cad.save_cplane", text="Save Current")
-        row.operator("cad.restore_cplane", text="Restore by Name")
-        box.operator("cad.start_cplane_3pt", text="Create 3-Point CPlane")
-        box.operator("cad.start_cplane_xaxis", text="Create X-Axis CPlane")
-        box.operator("cad.start_cplane_zaxis", text="Create Z-Axis CPlane")
-        box.operator("cad.start_cplane_face", text="Create Face CPlane")
-        box.operator("cad.start_cplane_curve_perp", text="Create Perp Curve CPlane")
-
-        box.separator()
-        box.prop(context.scene, "cad_cplane_rotate_angle", text="Rotate Angle")
-        row = box.row(align=True)
-        op = row.operator("cad.rotate_cplane", text="Rot X")
-        op.axis = "X"
-        op = row.operator("cad.rotate_cplane", text="Rot Y")
-        op.axis = "Y"
-        op = row.operator("cad.rotate_cplane", text="Rot Z")
-        op.axis = "Z"
-        box.operator("cad.start_cplane_rotate3pt", text="Rotate by 3 Points")
-        box.operator("cad.start_cplane_axisrotate", text="Axis Rotate + Slider")
-        box.operator("cad.start_cplane_move", text="Move CPlane")
-
-        box.separator()
-        box.operator("cad.view_to_cplane", text="View to CPlane")
-        box.prop(context.scene, "cad_cplane_camera_distance", text="Camera Distance")
-        box.operator("cad.camera_to_cplane", text="Camera to CPlane")
-        box.prop(context.scene, "cad_cplane_axis_rotation_angle", text="Axis Angle", slider=True)
-        box.operator("cad.apply_cplane_axis_rotation", text="Apply Axis Angle")
-
-        box.separator()
-        box.label(text="CPlane Layers")
-
-        if hasattr(context.scene, "cad_cplane_items") and hasattr(context.scene, "cad_cplane_index"):
-            box.template_list(
-                "Hippo3D_UL_cplane_list",
-                "",
-                context.scene,
-                "cad_cplane_items",
-                context.scene,
-                "cad_cplane_index",
-                rows=7,
-            )
-        else:
-            box.label(text="CPlane list not registered")
-
-        row = box.row(align=True)
-        row.operator("cad.delete_selected_cplane", text="Delete Selected", icon="TRASH")
-
-        box.label(text="Cmd: cplane 3pt/save/restore/list/delete")
-        box.label(text="Relative input: @x,y,z")
-
-        layout.separator()
-        box = layout.box()
-        box.label(text="Osnaps")
-        row = box.row(align=True)
-        row.prop(context.scene, "cad_osnap_endpoint", text="End")
-        row.prop(context.scene, "cad_osnap_midpoint", text="Mid")
-        row = box.row(align=True)
-        row.prop(context.scene, "cad_osnap_nearest", text="Near")
-        row.prop(context.scene, "cad_osnap_center", text="Cen")
-        row = box.row(align=True)
-        row.prop(context.scene, "cad_osnap_grid", text="Grid")
-        box.prop(context.scene, "cad_grid_size", text="Grid Size")
-        box.prop(context.scene, "cad_snap_radius", text="Snap Radius")
-
-        layout.separator()
-        row = layout.row(align=True)
-        row.prop(context.scene, "cad_ortho", text="Ortho F8", toggle=True)
-        row.operator("cad.toggle_ortho", text="Toggle")
-
-        layout.separator()
-        box = layout.box()
-        box.label(text="Import / Export")
-        row = box.row(align=True)
-        row.operator("hippo.import_step", text="Import STEP", icon="IMPORT")
-        row.operator("hippo.export_step", text="Export STEP", icon="EXPORT")
-        row = box.row(align=True)
-        row.operator("hippo.import_3dm", text="Import 3DM", icon="IMPORT")
-        row.operator("hippo.export_3dm", text="Export 3DM", icon="EXPORT")
-
-        layout.separator()
-        box = layout.box()
-        box.label(text="How to use")
-        box.label(text="Press /, type line, Enter")
-        box.label(text="Commands: line, polyline, rectangle, circle, nurbs")
-        box.label(text="Click points or type x,y,z")
-        box.label(text="F8 toggles Ortho; Esc exits")
-
-        if state.active:
-            layout.separator()
-            layout.label(text="Active CAD command:", icon="PLAY")
-            layout.label(text=command_label())
-            layout.label(text=f"Snap: {state.snap_label or 'none'}")
-
-
-# -----------------------------------------------------------------------------
-# Toolbar tool
-# -----------------------------------------------------------------------------
-
-class Hippo3D_WST_LineTool(WorkSpaceTool):
-    bl_space_type = "VIEW_3D"
-    bl_context_mode = "OBJECT"
-    bl_idname = "cad_blender.line_tool"
-    bl_label = "Line"
-    bl_description = "Start Line command"
-    bl_icon = (ICON_DIR / "line").as_posix()
-    bl_widget = None
-    bl_keymap = (("cad.start_line", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
-
-
-class Hippo3D_WST_PolylineTool(WorkSpaceTool):
-    bl_space_type = "VIEW_3D"
-    bl_context_mode = "OBJECT"
-    bl_idname = "cad_blender.polyline_tool"
-    bl_label = "Polyline"
-    bl_description = "Start Polyline command"
-    bl_icon = (ICON_DIR / "polyline").as_posix()
-    bl_widget = None
-    bl_keymap = (("cad.start_polyline", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
-
-
-class Hippo3D_WST_RectangleTool(WorkSpaceTool):
-    bl_space_type = "VIEW_3D"
-    bl_context_mode = "OBJECT"
-    bl_idname = "cad_blender.rectangle_tool"
-    bl_label = "Rectangle"
-    bl_description = "Start Rectangle command"
-    bl_icon = (ICON_DIR / "rectangle").as_posix()
-    bl_widget = None
-    bl_keymap = (("cad.start_rectangle", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
-
-
-class Hippo3D_WST_CircleTool(WorkSpaceTool):
-    bl_space_type = "VIEW_3D"
-    bl_context_mode = "OBJECT"
-    bl_idname = "cad_blender.circle_tool"
-    bl_label = "Circle"
-    bl_description = "Start Circle command"
-    bl_icon = (ICON_DIR / "circle").as_posix()
-    bl_widget = None
-    bl_keymap = (("cad.start_circle", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
-
-
-class Hippo3D_WST_NurbsTool(WorkSpaceTool):
-    bl_space_type = "VIEW_3D"
-    bl_context_mode = "OBJECT"
-    bl_idname = "cad_blender.nurbs_tool"
-    bl_label = "NURBS Curve"
-    bl_description = "Start NURBS Curve command"
-    bl_icon = (ICON_DIR / "nurbs").as_posix()
-    bl_widget = None
-    bl_keymap = (("cad.start_nurbs", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
-
-
-
-
-class Hippo3D_WST_ArcTool(WorkSpaceTool):
-    bl_space_type = "VIEW_3D"
-    bl_context_mode = "OBJECT"
-    bl_idname = "hippo3d.arc_tool"
-    bl_label = "Arc"
-    bl_description = "Start Arc command"
-    bl_icon = (ICON_DIR / "arc").as_posix()
-    bl_widget = None
-    bl_keymap = (("cad.start_arc", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
-
-
-class Hippo3D_WST_EllipseTool(WorkSpaceTool):
-    bl_space_type = "VIEW_3D"
-    bl_context_mode = "OBJECT"
-    bl_idname = "hippo3d.ellipse_tool"
-    bl_label = "Ellipse"
-    bl_description = "Start Ellipse command"
-    bl_icon = (ICON_DIR / "ellipse").as_posix()
-    bl_widget = None
-    bl_keymap = (("cad.ellipse", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
-
-
-class Hippo3D_WST_PolygonTool(WorkSpaceTool):
-    bl_space_type = "VIEW_3D"
-    bl_context_mode = "OBJECT"
-    bl_idname = "hippo3d.polygon_tool"
-    bl_label = "Polygon"
-    bl_description = "Create Polygon"
-    bl_icon = (ICON_DIR / "polygon").as_posix()
-    bl_widget = None
-    bl_keymap = (("cad.polygon", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
-
-
-class Hippo3D_WST_XLineTool(WorkSpaceTool):
-    bl_space_type = "VIEW_3D"
-    bl_context_mode = "OBJECT"
-    bl_idname = "hippo3d.xline_tool"
-    bl_label = "XLine"
-    bl_description = "Start XLine command"
-    bl_icon =  (ICON_DIR / "xline").as_posix()
-    bl_widget = None
-    bl_keymap = (("cad.xline", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
-
-
-# -----------------------------------------------------------------------------
-# Registration
-# -----------------------------------------------------------------------------
-
-addon_keymaps = []
-
-
-
-class Hippo3D_OT_ActivateCPlaneExplicit(Operator):
-    bl_idname = "cad.activate_cplane_explicit"
-    bl_label = "Make CPlane Active"
-
-    name: StringProperty(default="")
-    builtin_mode: StringProperty(default="")
-    layer_key: StringProperty(default="")
-
-    def execute(self, context):
-        key = self.layer_key or ""
-
-        if key.startswith("BUILTIN:"):
-            mode = key.split(":", 1)[1]
-            set_builtin_cplane(context, mode)
-            self.report({"INFO"}, f"Active CPlane: {mode.title()}")
-        elif key.startswith("NAMED:"):
-            name = key.split(":", 1)[1]
-            if set_named_cplane(context, name):
-                self.report({"INFO"}, f"Active CPlane: {name}")
-            else:
-                self.report({"WARNING"}, f"No saved CPlane named '{name}'.")
-                return {"CANCELLED"}
-        elif self.builtin_mode:
-            set_builtin_cplane(context, self.builtin_mode)
-            self.report({"INFO"}, f"Active CPlane: {self.builtin_mode.title()}")
-        elif self.name:
-            if set_named_cplane(context, self.name):
-                self.report({"INFO"}, f"Active CPlane: {self.name}")
-            else:
-                self.report({"WARNING"}, f"No saved CPlane named '{self.name}'.")
-                return {"CANCELLED"}
-
-        sync_cplane_dropdown(context)
-
-        for area in context.screen.areas:
-            if area.type == "VIEW_3D":
-                area.tag_redraw()
-
-        return {"FINISHED"}
-
-
-
-class Hippo3D_OT_ToggleCPlaneVisibilityExplicit(Operator):
-    bl_idname = "cad.toggle_cplane_visibility_explicit"
-    bl_label = "Toggle CPlane Visibility"
-
-    name: StringProperty(default="")
-    builtin_mode: StringProperty(default="")
-    layer_key: StringProperty(default="")
-
-    def execute(self, context):
-        key = self.layer_key or ""
-
-        if key.startswith("BUILTIN:"):
-            mode = key.split(":", 1)[1]
-            current = is_cplane_visible(context, builtin_mode=mode)
-            set_cplane_visible(context, not current, builtin_mode=mode)
-        elif key.startswith("NAMED:"):
-            name = key.split(":", 1)[1]
-            current = is_cplane_visible(context, name=name)
-            set_cplane_visible(context, not current, name=name)
-        elif self.builtin_mode:
-            current = is_cplane_visible(context, builtin_mode=self.builtin_mode)
-            set_cplane_visible(context, not current, builtin_mode=self.builtin_mode)
-        elif self.name:
-            current = is_cplane_visible(context, name=self.name)
-            set_cplane_visible(context, not current, name=self.name)
-
-        for area in context.screen.areas:
-            if area.type == "VIEW_3D":
-                area.tag_redraw()
-
-        return {"FINISHED"}
-
-
-classes = [HIPPO_OT_ExportSTEP, HIPPO_OT_ImportSTEP, HIPPO_OT_Export3DM, HIPPO_OT_Import3DM, Hippo3D_OT_Command, Hippo3D_OT_StartLine, Hippo3D_OT_StartPolyline, Hippo3D_OT_StartRectangle, Hippo3D_OT_StartCircle, Hippo3D_OT_StartNurbs, Hippo3D_OT_SetSelectedNurbsDegree, Hippo3D_OT_Hippo3D_Loft, CAD_OT_LoftRealModifier, HIPPO_OT_NativeStatus, HIPPO_OT_StartArc, HIPPO_OT_Ellipse, HIPPO_OT_Polygon, HIPPO_OT_Project, HIPPO_OT_Array, HIPPO_OT_Explode, HIPPO_OT_XLine, HIPPO_OT_Offset,  HIPPO_OT_Trim, HIPPO_OT_Hippo3D_PlanarSurface, HIPPO_OT_Hippo3D_EdgeSurface, Hippo3D_OT_Hippo3D_Revolve, Hippo3D_OT_ClearRevolveAxis, Hippo3D_OT_SetRevolveAxis, CAD_OT_PipeSurface, CAD_OT_ExtrudeSurface, Hippo3D_OT_StartCommand, Hippo3D_OT_ToggleOrtho, Hippo3D_OT_ConvertToMesh, Hippo3D_OT_Join, Hippo3D_OT_SaveCPlane, Hippo3D_OT_RestoreCPlane, Hippo3D_OT_StartCPlane3Pt, Hippo3D_OT_StartCPlaneFace, Hippo3D_OT_StartCPlaneCurvePerp, Hippo3D_OT_RotateCPlane, Hippo3D_OT_StartCPlaneRotate3Pt, Hippo3D_OT_ApplyCPlaneAxisRotation, Hippo3D_OT_StartCPlaneAxisRotate, Hippo3D_OT_StartCPlaneMove, Hippo3D_OT_CameraToCPlane, Hippo3D_OT_ViewToCPlane, Hippo3D_OT_StartCPlaneZAxis, Hippo3D_OT_StartCPlaneXAxis, Hippo3D_OT_ToggleCPlaneVisibilityExplicit, Hippo3D_OT_ActivateCPlaneExplicit, Hippo3D_OT_RefreshCPlaneList, Hippo3D_OT_DeleteSelectedCPlane, Hippo3D_OT_ActivateSelectedCPlane, Hippo3D_OT_ToggleSelectedCPlaneVisible, Hippo3D_UL_CPlaneList, Hippo3D_CPlaneListItem, Hippo3D_OT_SetBuiltinCPlane, Hippo3D_OT_RestoreCPlaneByName, Hippo3D_OT_SetCPlaneVisible, Hippo3D_OT_DeleteCPlane, Hippo3D_PT_MainPanel]
-
-
-def _cad_cplane_enum_update(self, context):
-    # Choosing a built-in preset from the UI deactivates any restored named CPlane.
-    self.cad_active_cplane_name = ""
-
-
-def register_props():
-
-    bpy.types.Scene.hippo_fillet_radius = FloatProperty(name="Fillet Radius", default=1.0, min=0.001, soft_max=100.0)
-    bpy.types.Scene.hippo_trim_tolerance = FloatProperty(name="Trim Tolerance", default=0.05, min=0.0001, soft_max=10.0)
-
-    bpy.types.Scene.hippo_polygon_sides = IntProperty(name="Polygon Sides", default=6, min=3, max=256)
-    bpy.types.Scene.hippo_polygon_radius = FloatProperty(name="Polygon Radius", default=2.0, min=0.001, soft_max=100.0)
-
-    bpy.types.Scene.hippo_offset_distance = FloatProperty(name="Offset Distance", default=1.0, soft_min=-100.0, soft_max=100.0)
-    bpy.types.Scene.hippo_xline_length = FloatProperty(name="XLine Length", default=1000.0, min=1.0, soft_max=10000.0)
-    bpy.types.Scene.hippo_array_count = IntProperty(name="Array Count", default=5, min=1, max=1000)
-    bpy.types.Scene.hippo_array_dx = FloatProperty(name="Array X", default=2.0, soft_min=-100.0, soft_max=100.0)
-    bpy.types.Scene.hippo_array_dy = FloatProperty(name="Array Y", default=0.0, soft_min=-100.0, soft_max=100.0)
-    bpy.types.Scene.hippo_array_dz = FloatProperty(name="Array Z", default=0.0, soft_min=-100.0, soft_max=100.0)
-    bpy.types.Scene.hippo_ellipse_rx = FloatProperty(name="Ellipse Radius X", default=2.0, min=0.001, soft_max=100.0)
-    bpy.types.Scene.hippo_ellipse_ry = FloatProperty(name="Ellipse Radius Y", default=1.0, min=0.001, soft_max=100.0)
-    bpy.types.Scene.cad_osnap_endpoint = BoolProperty(name="Endpoint", default=True)
-    bpy.types.Scene.cad_osnap_midpoint = BoolProperty(name="Midpoint", default=True)
-    bpy.types.Scene.cad_osnap_nearest = BoolProperty(name="Nearest", default=True)
-    bpy.types.Scene.cad_osnap_center = BoolProperty(name="Center", default=True)
-    bpy.types.Scene.cad_osnap_grid = BoolProperty(name="Grid", default=False)
-    bpy.types.Scene.cad_ortho = BoolProperty(name="Ortho", default=False)
-    bpy.types.Scene.cad_grid_size = FloatProperty(name="Grid Size", default=1.0, min=0.001, soft_max=10.0)
-    bpy.types.Scene.cad_snap_radius = FloatProperty(name="Snap Radius", default=18.0, min=2.0, soft_max=80.0)
-    bpy.types.Scene.cad_nurbs_degree = IntProperty(name="NURBS Degree", default=3, min=1, max=11)
-    bpy.types.Scene.cad_selected_nurbs_degree = IntProperty(name="Selected NURBS Degree", default=3, min=1, max=11)
-    bpy.types.Scene.cad_loft_samples = IntProperty(name="Loft Samples", default=32, min=2, max=256)
-    bpy.types.Scene.cad_surface_samples = IntProperty(name="Surface Samples", default=32, min=2, max=256)
-    bpy.types.Scene.cad_extrude_distance = FloatProperty(name="Extrude Distance", default=5.0, soft_min=-100.0, soft_max=100.0)
-    bpy.types.Scene.cad_pipe_radius = FloatProperty(name="Pipe Radius", default=0.25, min=0.001, soft_max=10.0)
-    bpy.types.Scene.cad_pipe_resolution = IntProperty(name="Pipe Resolution", default=12, min=3, max=64)
-    bpy.types.Scene.cad_revolve_angle = FloatProperty(name="Revolve Degree", default=360.0, min=0.0, max=360.0, soft_min=0.0, soft_max=360.0)
-    bpy.types.Scene.cad_revolve_steps = IntProperty(name="Revolve Steps", default=48, min=3, max=256)
-    bpy.types.Scene.cad_revolve_axis_json = StringProperty(name="Revolve Axis", default="")
-    bpy.types.Scene.cad_sweep_rail_samples = IntProperty(name="Sweep Rail Samples", default=32, min=2, max=256)
-    bpy.types.Scene.cad_sweep_profile_samples = IntProperty(name="Sweep Profile Samples", default=24, min=2, max=256)
-    bpy.types.Scene.cad_active_cplane_name = StringProperty(name="Active Named CPlane", default="")
-    bpy.types.Scene.cad_cplane_save_name = StringProperty(name="CPlane Name", default="CPlane 01")
-    bpy.types.Scene.cad_cplane_rotate_angle = FloatProperty(name="Rotate Angle", default=90.0, soft_min=-360.0, soft_max=360.0)
-    bpy.types.Scene.cad_cplane_camera_distance = FloatProperty(name="Camera Distance", default=20.0, min=0.1, soft_max=100.0)
-
-    bpy.types.Scene.cad_cplane_axis_rotation_angle = FloatProperty(
-        name="Axis Angle",
-        default=0.0,
-        soft_min=-360.0,
-        soft_max=360.0,
-        update=cad_cplane_axis_rotation_angle_update,
-    )
-    bpy.types.Scene.cad_cplane_axis_rotation_name = StringProperty(name="Axis Rotation CPlane", default="")
-    bpy.types.Scene.cad_cplane_axis_rotation_json = StringProperty(name="Axis Rotation Data", default="{}")
-    bpy.types.Scene.cad_cplanes_json = StringProperty(name="Saved CPlanes", default="{}")
-    bpy.types.Scene.cad_cplane_visibility_json = StringProperty(name="CPlane Visibility", default="{}")
-    bpy.types.Scene.cad_show_cplane_visuals = BoolProperty(name="Show CPlanes", default=True)
-    bpy.types.Scene.cad_show_cplane_grid_visuals = BoolProperty(name="Show CPlane Grids", default=True)
-    bpy.types.Scene.cad_show_cplane_labels = BoolProperty(name="Show CPlane Labels", default=True)
-    bpy.types.Scene.cad_cplane_visual_grid_count = FloatProperty(name="CPlane Grid Count", default=6.0, min=1.0, soft_max=30.0)
-    bpy.types.Scene.cad_cplane_visual_grid_spacing = FloatProperty(name="CPlane Grid Spacing", default=1.0, min=0.001, soft_max=10.0)
-    bpy.types.Scene.cad_cplane_visual_axis_length = FloatProperty(name="CPlane Axis Length", default=2.0, min=0.1, soft_max=20.0)
-    bpy.types.Scene.cad_cplane_items = CollectionProperty(type=Hippo3D_CPlaneListItem)
-    bpy.types.Scene.cad_cplane_index = IntProperty(name="CPlane List Index", default=0)
-    bpy.types.Scene.cad_active_cplane_dropdown = EnumProperty(
-        name="Active CPlane",
-        description="Choose the active built-in or saved CPlane",
-        items=cplane_dropdown_items,
-        update=cplane_dropdown_update,
-    )
-    bpy.types.Scene.cad_current_cplane_visible = BoolProperty(
-        name="Current CPlane Visible",
-        description="Show or hide the currently active CPlane",
-        default=True,
-        update=current_cplane_visibility_update,
-    )
-    bpy.types.Scene.cad_cplane = EnumProperty(
-        name="CPlane",
-        description="Active CAD construction plane",
-        items=[
-            ("TOP", "Top / XY", "Draw on world XY"),
-            ("FRONT", "Front / XZ", "Draw on world XZ"),
-            ("RIGHT", "Right / YZ", "Draw on world YZ"),
-            ("WORLD", "World / XY", "World XY drawing plane")],
-        default="TOP",
-        update=_cad_cplane_enum_update,
-    )
-
-
-def unregister_props():
-    for name in ["cad_osnap_endpoint", "cad_osnap_midpoint", "cad_osnap_nearest", "cad_osnap_center", "cad_osnap_grid", "cad_ortho", "cad_grid_size", "cad_snap_radius", "cad_active_cplane_name", "cad_cplane_save_name", "cad_cplanes_json", "cad_show_cplane_visuals", "cad_show_cplane_grid_visuals", "cad_show_cplane_labels", "cad_cplane_visual_grid_count", "cad_cplane_visual_grid_spacing", "cad_cplane_visual_axis_length", "cad_cplane_visibility_json", "cad_cplane_items", "cad_cplane_index", "cad_active_cplane_dropdown", "cad_current_cplane_visible", "cad_cplane", "cad_cplane_rotate_angle", "cad_cplane_axis_rotation_angle", "cad_cplane_axis_rotation_name", "cad_cplane_axis_rotation_json", "cad_cplane_camera_distance", "cad_nurbs_degree", "cad_selected_nurbs_degree", "cad_loft_samples", "cad_surface_samples", "cad_extrude_distance", "cad_pipe_radius", "cad_pipe_resolution", "cad_revolve_angle", "cad_revolve_steps", "cad_sweep_rail_samples", "cad_sweep_profile_samples", "cad_revolve_axis_json", "hippo_offset_distance", "hippo_xline_length", "hippo_array_count", "hippo_array_dx", "hippo_array_dy", "hippo_array_dz", "hippo_ellipse_rx", "hippo_ellipse_ry", "hippo_polygon_sides", "hippo_polygon_radius", "hippo_fillet_radius", "hippo_trim_tolerance"]:
-        if hasattr(bpy.types.Scene, name):
-            delattr(bpy.types.Scene, name)
 
 
 
