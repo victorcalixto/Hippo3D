@@ -34,8 +34,10 @@ if(WIN32)
   list(APPEND _OCCT_SEARCH_PATHS
     "$ENV{OCCT_ROOT}"
     "C:/OCCT/opencascade-8.0.0-vc14-64"
+    "C:/OCCT/opencascade-8.0.1-vc14-64"
     "C:/OCCT/opencascade-7.9.0-vc14-64"
     "C:/OCCT/opencascade-7.8.0-vc14-64"
+    "C:/OCCT/opencascade-7.7.0-vc14-64"
     "C:/OpenCASCADE"
     "C:/OpenCASCADE-8.0.0"
     "C:/OpenCASCADE-7.9.0"
@@ -52,6 +54,11 @@ if(WIN32)
     set(_3RDPARTY_CANDIDATE "${_OCCT_PARENT}/3rdparty-vc14-64")
     if(EXISTS "${_3RDPARTY_CANDIDATE}")
       list(APPEND _3RDPARTY_SEARCH_PATHS "${_3RDPARTY_CANDIDATE}")
+    endif()
+    # Also try a sibling directly under the same root as OCCT
+    set(_3RDPARTY_CANDIDATE2 "$ENV{OCCT_ROOT}/../3rdparty-vc14-64")
+    if(EXISTS "${_3RDPARTY_CANDIDATE2}")
+      list(APPEND _3RDPARTY_SEARCH_PATHS "${_3RDPARTY_CANDIDATE2}")
     endif()
   endif()
   # Also try hardcoded C:/OCCT/3rdparty-vc14-64
@@ -90,6 +97,17 @@ find_path(OpenCASCADE_INCLUDE_DIR
   DOC "OpenCASCADE include directory"
 )
 
+# If we found an inc/ layout, but the headers are physically inside an inc/
+# subfolder, preserve that include path so #include <BRepPrimAPI_MakeBox.hxx>
+# keeps working.
+if(OpenCASCADE_INCLUDE_DIR)
+  get_filename_component(_OCCT_INCLUDE_LASTDIR "${OpenCASCADE_INCLUDE_DIR}" NAME)
+  if(_OCCT_INCLUDE_LASTDIR STREQUAL "inc")
+    set(OpenCASCADE_INCLUDE_DIR "${OpenCASCADE_INCLUDE_DIR}")
+  endif()
+endif()
+
+
 if(NOT OpenCASCADE_INCLUDE_DIR)
   message(STATUS "OpenCASCADE headers (BRepPrimAPI_MakeBox.hxx) not found in searched paths")
 endif()
@@ -112,7 +130,9 @@ foreach(_lib IN LISTS _OCCT_LIBS)
       lib64
       win64/gcc/lib          # Windows MinGW / old OCCT layouts
       win64/vc14/lib
+      win64/vc14/libd
       win64/vc15/lib
+      win64/vc15/libd
       osx/clang/lib            # macOS older packages
     DOC "OpenCASCADE library ${_lib}"
   )

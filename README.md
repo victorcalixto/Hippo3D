@@ -169,6 +169,8 @@ Supported platforms:
 
 See the full build guide: [`native/README_BUILD.md`](./native/README_BUILD.md)
 
+For a detailed Windows step-by-step guide, see [`native/COMPILE_ON_WINDOWS.md`](./native/COMPILE_ON_WINDOWS.md).
+
 Quick-start per platform:
 
 ```bash
@@ -187,7 +189,15 @@ cd native
 
 > **Note:** This repository includes the `opennurbs` library as a Git submodule. Clone with `--recurse-submodules` or run `git submodule update --init --recursive` after cloning.
 
-After building, optionally bundle OCCT libraries so the add-on works without a system-wide OCCT install:
+After building, bundle the add-on with all native dependencies into a single installable ZIP:
+
+```powershell
+# Windows (PowerShell)
+cd ..
+.\package_addon.ps1
+```
+
+On other platforms you can still bundle OCCT libraries manually:
 
 ```bash
 cd native

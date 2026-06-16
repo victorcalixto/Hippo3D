@@ -43,7 +43,7 @@ Push-Location $scriptDir
 # Discover Python
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
-# Discover Python — MUST match Blender's bundled Python ABI
+# Discover Python - MUST match Blender's bundled Python ABI
 # ---------------------------------------------------------------------------
 if ($PythonExecutable -eq "") {
     # -----------------------------------------------------------------------
@@ -130,11 +130,55 @@ Write-Host "Using Python: $PythonExecutable"
 & $PythonExecutable --version
 
 # ---------------------------------------------------------------------------
-# Ensure pybind11
+# Discover matching Python development files for Windows
 # ---------------------------------------------------------------------------
+# Blender's bundled Python has no include/Python.h or python313.lib, which
+# CMake's FindPython needs.  If PYTHON_DEV_DIR is not set, try to auto-detect
+# a standalone Python install whose major.minor version matches Blender's.
+if (-not $env:PYTHON_DEV_DIR) {
+    $pyVersionOutput = & $PythonExecutable --version 2>&1
+    if ($pyVersionOutput -match "Python (\d+)\.(\d+)") {
+        $pyMajor = $matches[1]
+        $pyMinor = $matches[2]
+        $pyVerTag = "$pyMajor$pyMinor"
+
+        # Candidate roots to search for a matching Python dev install
+        $pyDevCandidates = @(
+            "C:\Users\$env:USERNAME\AppData\Local\Programs\Python\Python$pyVerTag"
+            "C:\Program Files\Python$pyVerTag"
+            "C:\Program Files (x86)\Python$pyVerTag"
+            "C:\Python$pyVerTag"
+        )
+
+        foreach ($candidate in $pyDevCandidates) {
+            $lib = Join-Path $candidate "libs\python$pyVerTag.lib"
+            $hdr = Join-Path $candidate "include\Python.h"
+            if ((Test-Path $lib) -and (Test-Path $hdr)) {
+                $env:PYTHON_DEV_DIR = $candidate
+                Write-Host "Auto-detected Python development install: $candidate"
+                break
+            }
+        }
+
+        # Last-resort fallback to the temp tree we may have downloaded earlier
+        if (-not $env:PYTHON_DEV_DIR) {
+            $fallback = "C:\Users\$env:USERNAME\AppData\Local\Temp\opencode\py$pyVerTag`_dev"
+            $lib = Join-Path $fallback "libs\python$pyVerTag.lib"
+            $hdr = Join-Path $fallback "include\Python.h"
+            if ((Test-Path $lib) -and (Test-Path $hdr)) {
+                $env:PYTHON_DEV_DIR = $fallback
+                Write-Host "Auto-detected fallback Python development tree: $fallback"
+            }
+        }
+    }
+}
+
+if ($env:PYTHON_DEV_DIR) {
+    Write-Host "PYTHON_DEV_DIR: $env:PYTHON_DEV_DIR"
+}
 $pybindOk = & $PythonExecutable -m pybind11 --cmakedir 2>$null
 if ($LASTEXITCODE -ne 0 -or -not $pybindOk) {
-    Write-Host "pybind11 missing — installing..."
+    Write-Host "pybind11 missing - installing..."
     & $PythonExecutable -m pip install --upgrade pip pybind11
     $pybindOk = & $PythonExecutable -m pybind11 --cmakedir
 }
@@ -178,23 +222,23 @@ foreach ($p in $occtSearchPaths) {
         $autoOcct = $p
         break
     }
+    if (Test-Path "$p\include\BRepPrimAPI_MakeBox.hxx") {
+        $autoOcct = $p
+        break
+    }
     if (Test-Path "$p\inc\BRepPrimAPI_MakeBox.hxx") {
         $autoOcct = $p
         break
     }
     # OCCT Windows installer layout: opencascade-X.X.X-vc14-64 / inc
-    if (Test-Path "$p\opencascade-8.0.0-vc14-64\inc\BRepPrimAPI_MakeBox.hxx") {
-        $autoOcct = "$p\opencascade-8.0.0-vc14-64"
-        break
+    foreach ($occtVersion in @("8.0.0", "8.0.1", "7.9.0", "7.8.0", "7.7.0")) {
+        $sub = "$p\opencascade-$occtVersion-vc14-64"
+        if (Test-Path "$sub\inc\BRepPrimAPI_MakeBox.hxx") {
+            $autoOcct = $sub
+            break
+        }
     }
-    if (Test-Path "$p\opencascade-7.9.0-vc14-64\inc\BRepPrimAPI_MakeBox.hxx") {
-        $autoOcct = "$p\opencascade-7.9.0-vc14-64"
-        break
-    }
-    if (Test-Path "$p\opencascade-7.8.0-vc14-64\inc\BRepPrimAPI_MakeBox.hxx") {
-        $autoOcct = "$p\opencascade-7.8.0-vc14-64"
-        break
-    }
+    if ($autoOcct) { break }
 }
 
 if ($autoOcct) {
@@ -206,8 +250,18 @@ if ($autoOcct) {
         $env:3RDPARTY_DIR = $thirdPartyDir
         Write-Host "Auto-detected Windows OCCT: $autoOcct"
         Write-Host "3rdparty dir: $thirdPartyDir"
-    } else {
-        Write-Host "Auto-detected Windows OCCT: $autoOcct"
+    }
+    else {
+        # Also try a sibling 3rdparty-vc14-64 directly under the same root as OCCT
+        $thirdPartyDir2 = Join-Path $autoOcct "..\3rdparty-vc14-64"
+        if (Test-Path $thirdPartyDir2) {
+            $env:3RDPARTY_DIR = (Resolve-Path $thirdPartyDir2).Path
+            Write-Host "Auto-detected Windows OCCT: $autoOcct"
+            Write-Host "3rdparty dir: $($env:3RDPARTY_DIR)"
+        }
+        else {
+            Write-Host "Auto-detected Windows OCCT: $autoOcct"
+        }
     }
 }
 
@@ -218,13 +272,33 @@ $generator = ""
 if ($Toolchain -eq "MSVC") {
     # Prefer Ninja if available, otherwise Visual Studio
     $ninja = Get-Command ninja -ErrorAction SilentlyContinue
-    if ($ninja) {
+    $cl = Get-Command cl -ErrorAction SilentlyContinue
+    if ($ninja -and $cl) {
         $generator = "Ninja Multi-Config"
     } else {
         $generator = "Visual Studio 17 2022"
     }
 } else {
     $generator = "MinGW Makefiles"
+}
+
+# ---------------------------------------------------------------------------
+# Patch OpenNURBS for Windows
+# ---------------------------------------------------------------------------
+# The bundled opennurbs submodule tries to build android_uuid and freetype263
+# on both ANDROID and LINUX, but the LINUX branch is also taken under MSVC
+# because opennurbs' WIN32 detection is missing here. android_uuid requires
+# POSIX headers (unistd.h) that do not exist on Windows, so the build fails.
+# We patch the one-line condition before CMake configures. The patch is applied
+# locally every build; the upstream submodule commit is left unchanged.
+$onCmake = Join-Path $scriptDir "third_party" "opennurbs" "CMakeLists.txt"
+if (Test-Path $onCmake) {
+    $content = Get-Content $onCmake -Raw
+    if ($content -match "if \(ANDROID OR LINUX\)") {
+        $content = $content -replace "if \(ANDROID OR LINUX\)", "if ((ANDROID OR LINUX) AND NOT WIN32)"
+        Set-Content $onCmake $content -NoNewline
+        Write-Host "Patched third_party/opennurbs/CMakeLists.txt for Windows build."
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -237,15 +311,28 @@ $cmakeArgs = @(
     "-DPython_EXECUTABLE=$PythonExecutable",
     "-DPYTHON_EXECUTABLE=$PythonExecutable",
     "-Dpybind11_DIR=$PYBIND11_DIR",
-    "-DHIPPO_PLATFORM_FOLDER=$PlatformFolder"
+    "-DHIPPO_PLATFORM_FOLDER=$PlatformFolder",
+    "-DOPENNURBS_BUILD_ON_WINDOWS=ON"
 )
+
+if ($env:PYTHON_DEV_DIR) {
+    $cmakeArgs += "-DPython_ROOT_DIR=$env:PYTHON_DEV_DIR"
+}
 
 & cmake @cmakeArgs
 
 # ---------------------------------------------------------------------------
 # Build (Release)
 # ---------------------------------------------------------------------------
-& cmake --build build --config Release
+# OpenNURBS static lib must be built before hippo_occ_core is linked, otherwise
+# Visual Studio generator reports LNK1181 because the dependency ordering in
+# the generated .sln is not fully respected for sibling subdirectories.
+& cmake --build build --config Release --target opennurbsStatic
+if ($generator -like "Visual Studio*") {
+    & cmake --build build --config Release
+} else {
+    & cmake --build build --config Release
+}
 
 # ---------------------------------------------------------------------------
 # Locate and copy artifact
@@ -278,23 +365,48 @@ if (-not $artifact) {
 $outDir = "$PlatformFolder"
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
-# Preserve ABI-tagged name (e.g. hippo_occ_core.cp311-win_amd64.pyd) —
+# Preserve ABI-tagged name (e.g. hippo_occ_core.cp311-win_amd64.pyd) -
 # occ_loader.py searches for hippo_occ_core.*.pyd and picks the newest.
 $outPyd = Join-Path $outDir $artifact.Name
 Copy-Item $artifact.FullName -Destination $outPyd -Force
+
+# ---------------------------------------------------------------------------
+# Bundle runtime dependencies next to the module
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "Bundling OCCT/3rdparty DLLs ..."
+& $PythonExecutable bundle_occt.py --platform $PlatformFolder
+
+# Blender's bundled Python DLLs are required at runtime but are not part of
+# OCCT. Copy them from the Blender install tree next to the module so the
+# add-on folder is self-contained.
+$pythonDllDir = Split-Path $PythonExecutable -Parent
+foreach ($dll in @("python3.dll", "python313.dll")) {
+    $src = Join-Path $pythonDllDir $dll
+    if (-not (Test-Path $src)) {
+        # Portable Blender layout: DLLs live at the top-level Blender folder
+        $candidate = Join-Path (Split-Path $pythonDllDir -Parent -Resolve) ".." $dll
+        $candidate = Resolve-Path $candidate -ErrorAction SilentlyContinue
+        if ($candidate -and (Test-Path $candidate)) {
+            $src = $candidate
+        }
+    }
+    if (Test-Path $src) {
+        Copy-Item $src -Destination $outDir -Force
+        Write-Host "  copied $dll"
+    }
+}
 
 Write-Host ""
 Write-Host "Build complete."
 Write-Host "Extension module:"
 Write-Host "  $outPyd"
 Write-Host ""
-Write-Host "Next step — bundle OCCT DLLs:"
-Write-Host "  python bundle_occt.py --platform windows-x64"
-Write-Host ""
-Write-Host "Then test in Blender:"
+Write-Host "To test in Blender, ensure the folder is on PATH, then run:"
 Write-Host '  import sys'
-Write-Host "  sys.path.append('$($scriptDir)\$outDir')"
+Write-Host "  sys.path.append(r'$scriptDir\$outDir')"
 Write-Host '  import hippo_occ_core'
 Write-Host '  print(hippo_occ_core.make_box_mesh(10, 10, 10).keys())'
 
 Pop-Location
+

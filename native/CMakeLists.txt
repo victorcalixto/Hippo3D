@@ -36,7 +36,54 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # Use modern FindPython instead of deprecated FindPythonInterp/FindPythonLibs
 set(PYBIND11_FINDPYTHON ON)
-find_package(pybind11 REQUIRED)
+
+# Blender's bundled Python on Windows does not ship the development headers or
+# .lib files needed by CMake's FindPython.  If the user points us at them via
+# PYTHON_DEV_DIR, prefer that installation for development artifacts while
+# still using Blender's python.exe as the interpreter.
+if(WIN32 AND DEFINED ENV{PYTHON_DEV_DIR})
+    set(Python_ROOT_DIR "$ENV{PYTHON_DEV_DIR}" CACHE PATH "" FORCE)
+    set(Python_INCLUDE_DIR "$ENV{PYTHON_DEV_DIR}/include" CACHE PATH "" FORCE)
+    set(Python_LIBRARY "$ENV{PYTHON_DEV_DIR}/libs/python${Python_VERSION_MAJOR}${Python_VERSION_MINOR}.lib" CACHE FILEPATH "" FORCE)
+endif()
+
+find_package(Python 3.8 REQUIRED COMPONENTS Interpreter OPTIONAL_COMPONENTS Development.Module Development.Embed)
+
+# After FindPython runs, force the variables pybind11 will use if the user
+# explicitly supplied PYTHON_DEV_DIR.  This prevents CMake from falling back
+# to a different Python install found via registry/PATH (e.g. Python 3.11).
+if(WIN32 AND DEFINED ENV{PYTHON_DEV_DIR})
+    set(Python_FOUND TRUE)
+    set(Python_Development_FOUND TRUE)
+    set(Python_Development_Module_FOUND TRUE)
+    set(Python_INCLUDE_DIRS "$ENV{PYTHON_DEV_DIR}/include")
+    set(Python_LIBRARIES "$ENV{PYTHON_DEV_DIR}/libs/python${Python_VERSION_MAJOR}${Python_VERSION_MINOR}.lib")
+    set(Python_LIBRARY_RELEASE "$ENV{PYTHON_DEV_DIR}/libs/python${Python_VERSION_MAJOR}${Python_VERSION_MINOR}.lib")
+    set(Python_LIBRARY_DEBUG "$ENV{PYTHON_DEV_DIR}/libs/python${Python_VERSION_MAJOR}${Python_VERSION_MINOR}.lib")
+endif()
+
+if(WIN32 AND DEFINED ENV{PYTHON_DEV_DIR} AND NOT Python_Development.Module_FOUND)
+    # On Windows with Blender's bundled Python, CMake's FindPython may refuse to
+    # believe PYTHON_DEV_DIR because the interpreter reports a different prefix.
+    # We know the user supplied PYTHON_DEV_DIR is correct, so force the variables
+    # that pybind11 needs and then load pybind11 without running its own Python
+    # search.
+    message(STATUS "Forcing Python development artifacts from PYTHON_DEV_DIR: $ENV{PYTHON_DEV_DIR}")
+    # pybind11NewTools.cmake uses Python_add_library, which FindPython only defines
+    # when a development component is found. Provide a minimal shim here.
+    if(NOT COMMAND Python_add_library)
+        function(Python_add_library target)
+            cmake_parse_arguments(ARG "" "" "" ${ARGN})
+            add_library(${target} MODULE ${ARG_UNPARSED_ARGUMENTS})
+            target_include_directories(${target} PRIVATE ${Python_INCLUDE_DIRS})
+            target_link_libraries(${target} PRIVATE ${Python_LIBRARIES})
+        endfunction()
+    endif()
+    find_package(pybind11 REQUIRED HINTS "$ENV{PYTHON_DEV_DIR}/Lib/site-packages/pybind11/share/cmake/pybind11" "${Python_EXECUTABLE}/../../Lib/site-packages/pybind11/share/cmake/pybind11" NO_DEFAULT_PATH)
+else()
+    find_package(pybind11 REQUIRED)
+endif()
+
 find_package(OpenCASCADE REQUIRED)
 
 # ---------------------------------------------------------------------------
@@ -48,23 +95,71 @@ find_package(OpenCASCADE REQUIRED)
 # ---------------------------------------------------------------------------
 set(OPENNURBS_DIR "${CMAKE_SOURCE_DIR}/third_party/opennurbs")
 
+# On Windows the upstream opennurbs CMakeLists only builds android_uuid/freetype263
+# for (ANDROID OR LINUX), so on WIN32 we must force them on as well or the link
+# step will be missing those static archives.
+if(WIN32)
+    set(OPENNURBS_BUILD_ON_WINDOWS ON CACHE BOOL "Build android_uuid/freetype263 on Windows" FORCE)
+endif()
+if(OPENNURBS_BUILD_ON_WINDOWS)
+    set(_orig_ANDROID "${ANDROID}")
+    set(_orig_LINUX "${LINUX}")
+    set(ANDROID ON CACHE BOOL "" FORCE)
+    set(LINUX ON CACHE BOOL "" FORCE)
+endif()
+
+add_subdirectory(${OPENNURBS_DIR} ${CMAKE_BINARY_DIR}/opennurbs)
+
+if(OPENNURBS_BUILD_ON_WINDOWS)
+    set(ANDROID "${_orig_ANDROID}" CACHE BOOL "" FORCE)
+    set(LINUX "${_orig_LINUX}" CACHE BOOL "" FORCE)
+endif()
+
+# On Windows we don't actually need android_uuid: opennurbs_uuid.cpp uses
+# Rpcrt4.lib / UuidCreate when ON_COMPILER_MSC is defined.  The android_uuid
+# subdir only builds cleanly on Unix, so skip linking it on Windows.
+if(WIN32)
+    set(OPENNURBS_ANDROID_UUID_A "")
+endif()
+
 find_library(OPENNURBS_STATIC_LIB
     NAMES opennurbsStatic
-    PATHS ${OPENNURBS_DIR}/build
+    PATHS
+        ${OPENNURBS_DIR}/build
+        ${OPENNURBS_DIR}/build/Release
+        ${CMAKE_BINARY_DIR}/opennurbs
+        ${CMAKE_BINARY_DIR}/opennurbs/Release
+        ${CMAKE_BINARY_DIR}/opennurbs/Debug
     NO_DEFAULT_PATH
 )
 if(NOT OPENNURBS_STATIC_LIB)
-    message(FATAL_ERROR "OpenNURBS static library not found in ${OPENNURBS_DIR}/build")
+    message(STATUS "OpenNURBS static library not yet built; configuring build step")
+    set(OPENNURBS_STATIC_LIB "${CMAKE_BINARY_DIR}/opennurbs/Release/${CMAKE_STATIC_LIBRARY_PREFIX}opennurbsStatic${CMAKE_STATIC_LIBRARY_SUFFIX}")
 endif()
 
 set(OPENNURBS_ZLIB_A "${OPENNURBS_DIR}/build/zlib/${CMAKE_STATIC_LIBRARY_PREFIX}zlib${CMAKE_STATIC_LIBRARY_SUFFIX}")
 if(NOT EXISTS ${OPENNURBS_ZLIB_A})
-    message(FATAL_ERROR "OpenNURBS built-in zlib archive not found: ${OPENNURBS_ZLIB_A}")
+    set(OPENNURBS_ZLIB_A "${OPENNURBS_DIR}/build/zlib/Release/${CMAKE_STATIC_LIBRARY_PREFIX}zlib${CMAKE_STATIC_LIBRARY_SUFFIX}")
+endif()
+if(NOT EXISTS ${OPENNURBS_ZLIB_A})
+    set(OPENNURBS_ZLIB_A "${CMAKE_BINARY_DIR}/opennurbs/zlib/${CMAKE_STATIC_LIBRARY_PREFIX}zlib${CMAKE_STATIC_LIBRARY_SUFFIX}")
+endif()
+if(NOT EXISTS ${OPENNURBS_ZLIB_A})
+    set(OPENNURBS_ZLIB_A "${CMAKE_BINARY_DIR}/opennurbs/zlib/Release/${CMAKE_STATIC_LIBRARY_PREFIX}zlib${CMAKE_STATIC_LIBRARY_SUFFIX}")
+endif()
+if(NOT EXISTS ${OPENNURBS_ZLIB_A})
+    set(OK_OPENNURBS_ZLIB_A ON)
 endif()
 
 set(OPENNURBS_ANDROID_UUID_A "${OPENNURBS_DIR}/build/android_uuid/${CMAKE_STATIC_LIBRARY_PREFIX}android_uuid${CMAKE_STATIC_LIBRARY_SUFFIX}")
 if(NOT EXISTS ${OPENNURBS_ANDROID_UUID_A})
-    message(FATAL_ERROR "OpenNURBS android_uuid archive not found: ${OPENNURBS_ANDROID_UUID_A}")
+    set(OPENNURBS_ANDROID_UUID_A "${CMAKE_BINARY_DIR}/opennurbs/android_uuid/${CMAKE_STATIC_LIBRARY_PREFIX}android_uuid${CMAKE_STATIC_LIBRARY_SUFFIX}")
+endif()
+if(NOT EXISTS ${OPENNURBS_ANDROID_UUID_A})
+    set(OPENNURBS_ANDROID_UUID_A "${CMAKE_BINARY_DIR}/opennurbs/android_uuid/Release/${CMAKE_STATIC_LIBRARY_PREFIX}android_uuid${CMAKE_STATIC_LIBRARY_SUFFIX}")
+endif()
+if(NOT EXISTS ${OPENNURBS_ANDROID_UUID_A})
+    set(OPENNURBS_ANDROID_UUID_A "")
 endif()
 
 # ---------------------------------------------------------------------------
@@ -73,24 +168,30 @@ endif()
 # On Windows, OCCT's 3rdparty package often bundles zlib in a subfolder
 # like 3rdparty-vc14-64/zlib-1.2.11/.
 if(WIN32 AND DEFINED ENV{OCCT_ROOT})
+  # OCCT's prebuilt package uses a sibling 3rdparty-vc14-64 folder.
+  # If it exists, set ZLIB_ROOT from it so find_package(ZLIB) locates the
+  # bundled headers/library instead of a stray system copy.
   get_filename_component(_OCCT_PARENT "$ENV{OCCT_ROOT}" DIRECTORY)
-  file(GLOB _3RDPARTY_DIRS "${_OCCT_PARENT}/3rdparty-vc14-64/*")
-  foreach(_dir IN LISTS _3RDPARTY_DIRS)
-    if(IS_DIRECTORY "${_dir}")
-      # Check if it looks like a zlib install (has include/zlib.h and lib/zlib.lib)
-      if(EXISTS "${_dir}/include/zlib.h" AND EXISTS "${_dir}/lib/zlib.lib")
-        set(ZLIB_ROOT "${_dir}")
-        list(APPEND CMAKE_PREFIX_PATH "${_dir}")
-        message(STATUS "Found bundled zlib in 3rdparty: ${_dir}")
-        break()
+  set(_3RDPARTY_DIR "$ENV{3RDPARTY_DIR}")
+  if(NOT _3RDPARTY_DIR AND EXISTS "${_OCCT_PARENT}/3rdparty-vc14-64")
+    set(_3RDPARTY_DIR "${_OCCT_PARENT}/3rdparty-vc14-64")
+  endif()
+  if(_3RDPARTY_DIR)
+    file(GLOB _3RDPARTY_DIRS "${_3RDPARTY_DIR}/*")
+    foreach(_dir IN LISTS _3RDPARTY_DIRS)
+      if(IS_DIRECTORY "${_dir}")
+        if(EXISTS "${_dir}/include/zlib.h" AND EXISTS "${_dir}/lib/zlib.lib")
+          set(ZLIB_ROOT "${_dir}")
+          list(APPEND CMAKE_PREFIX_PATH "${_dir}")
+          message(STATUS "Found bundled zlib in 3rdparty: ${_dir}")
+          break()
+        endif()
       endif()
+    endforeach()
+    if(EXISTS "${_3RDPARTY_DIR}")
+      list(APPEND CMAKE_PREFIX_PATH "${_3RDPARTY_DIR}")
+      message(STATUS "Added 3rdparty prefix: ${_3RDPARTY_DIR}")
     endif()
-  endforeach()
-  # Also add the top-level 3rdparty dir as a fallback prefix
-  set(_3RDPARTY_TOP "${_OCCT_PARENT}/3rdparty-vc14-64")
-  if(EXISTS "${_3RDPARTY_TOP}")
-    list(APPEND CMAKE_PREFIX_PATH "${_3RDPARTY_TOP}")
-    message(STATUS "Added 3rdparty prefix: ${_3RDPARTY_TOP}")
   endif()
 endif()
 find_package(ZLIB REQUIRED)
@@ -131,6 +232,7 @@ target_link_libraries(hippo_occ_core PRIVATE
     ${OPENNURBS_ZLIB_A}
     ${OPENNURBS_ANDROID_UUID_A}
     ZLIB::ZLIB
+    $<$<BOOL:${WIN32}>:Rpcrt4>
 )
 
 # ---------------------------------------------------------------------------
