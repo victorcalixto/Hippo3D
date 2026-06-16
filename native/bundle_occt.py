@@ -56,14 +56,32 @@ def _find_module(build_dir: Path):
     return candidates[0]
 
 
+# System libraries that should NOT be bundled — every distro has them.
+_SYSTEM_LIBS = {
+    "libc.so", "libm.so", "libdl.so", "libpthread.so",
+    "librt.so", "libresolv.so", "libnsl.so", "libcrypt.so",
+    "libutil.so", "libgcc_s.so", "libstdc++.so", "ld-linux",
+    "linux-vdso", "linux-gate",
+}
+
+
+def _is_system_lib(name: str):
+    """Return True if the library is a standard system C/C++ runtime."""
+    low = name.lower()
+    for prefix in _SYSTEM_LIBS:
+        if prefix in low:
+            return True
+    return False
+
+
 def _linux_libs(module: Path):
-    """Return list of absolute OCCT .so paths using ldd."""
+    """Return list of absolute OCCT and 3rdparty .so paths using ldd."""
     try:
         out = subprocess.check_output(["ldd", str(module)], text=True)
     except FileNotFoundError:
         print("Error: 'ldd' not found. Cannot discover linked libraries.")
         return []
-    libs = []
+
     # Candidate directories for "not found" OCCT libraries
     script_dir = Path(__file__).resolve().parent
     occt_local = script_dir / "third_party" / "occt-8.0.0" / "lib"
@@ -77,29 +95,72 @@ def _linux_libs(module: Path):
                     search_dirs.append(p)
     if occt_local.is_dir():
         search_dirs.append(occt_local)
-    for line in out.splitlines():
-        # e.g.  libTKernel.so.7 => /usr/lib/x86_64-linux-gnu/libTKernel.so.7 (0x...)
-        # e.g.  libTKernel.so.8.0 => not found
-        if "=>" not in line:
+
+    def _collect_ldd(binary: Path):
+        """Return dict {soname: absolute_path_or_None} for a binary."""
+        try:
+            raw = subprocess.check_output(["ldd", str(binary)], text=True)
+        except subprocess.CalledProcessError:
+            return {}
+        deps = {}
+        for line in raw.splitlines():
+            if "=>" not in line:
+                continue
+            lib_name, rest = line.split("=>", 1)
+            lib_name = lib_name.strip()
+            parts = rest.strip().split()
+            if parts and parts[0].startswith("/"):
+                p = Path(parts[0])
+                if p.exists():
+                    deps[lib_name] = p
+                else:
+                    deps[lib_name] = None
+            else:
+                deps[lib_name] = None
+        return deps
+
+    def _resolve_not_found(lib_name):
+        for d in search_dirs:
+            candidate = d / lib_name
+            if candidate.exists():
+                return candidate
+        return None
+
+    # Breadth-first traversal of dependency tree
+    visited = set()
+    libs = []
+    queue = [module]
+
+    while queue:
+        current = queue.pop(0)
+        if current in visited:
             continue
-        lib_name, rest = line.split("=>", 1)
-        lib_name = lib_name.strip()
-        if not lib_name.lower().startswith("libtk"):
-            continue
-        parts = rest.strip().split()
-        if parts and parts[0].startswith("/"):
-            # Resolved absolute path
-            p = Path(parts[0])
-            if p.exists():
-                libs.append(p)
-        else:
-            # "not found" — search candidate directories
-            for d in search_dirs:
-                candidate = d / lib_name
-                if candidate.exists():
-                    libs.append(candidate)
-                    break
-    return libs
+        visited.add(current)
+
+        deps = _collect_ldd(current)
+        for lib_name, lib_path in deps.items():
+            if _is_system_lib(lib_name):
+                continue
+            if lib_path is None:
+                lib_path = _resolve_not_found(lib_name)
+            if lib_path is None or not lib_path.exists():
+                # Only warn for OCCT libs; silently skip other missing ones
+                if lib_name.lower().startswith("libtk"):
+                    print(f"Warning: could not locate {lib_name}")
+                continue
+            real = lib_path.resolve()
+            if real not in visited:
+                libs.append(real)
+                queue.append(real)
+
+    # Remove duplicates while preserving order
+    seen = set()
+    deduped = []
+    for p in libs:
+        if p not in seen:
+            seen.add(p)
+            deduped.append(p)
+    return deduped
 
 
 def _macos_libs(module: Path):
