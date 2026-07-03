@@ -12,6 +12,13 @@ on:
 env:
   OCCT_VERSION: "8.0.0"
 
+# Reusable checkout step with submodules
+x-checkout: &checkout
+  uses: actions/checkout@v4
+  with:
+    submodules: recursive
+    fetch-depth: 0
+
 jobs:
   # ========================================================================
   # 1. Linux x64
@@ -20,6 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -36,7 +45,7 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build build-essential
+          sudo apt-get install -y cmake ninja-build build-essential libfreetype6-dev
 
       - name: Build OCCT from source (if not cached)
         if: steps.cache-occt-linux.outputs.cache-hit != 'true'
@@ -70,6 +79,8 @@ jobs:
     runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -106,6 +117,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -138,15 +151,12 @@ jobs:
   # ========================================================================
   # 4. Windows x64
   # ========================================================================
-  # NOTE: Windows CI requires a pre-installed OCCT build or a download step.
-  # The easiest approach is to cache a prebuilt OCCT Windows package.
-  # If you have a Windows OCCT build cached, uncomment and adjust this job.
-  # For now, Windows CI is left as a documented template.
-  # ========================================================================
   windows-x64:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -166,6 +176,18 @@ jobs:
         with:
           path: native/third_party/occt-8.0.0
           key: occt-${{ env.OCCT_VERSION }}-windows-${{ hashFiles('native/third_party/occt-8.0.0-src/**') }}
+
+      - name: Download OCCT source (if not cached)
+        if: steps.cache-occt-windows.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p native/third_party
+          if [ ! -d "native/third_party/occt-8.0.0-src" ]; then
+            curl -L -o /tmp/opencascade-8.0.0.tar.gz \
+              "https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V8_0_0.tar.gz"
+            tar -xzf /tmp/opencascade-8.0.0.tar.gz -C native/third_party
+            mv native/third_party/OCCT-8_0_0 native/third_party/occt-8.0.0-src
+          fi
 
       - name: Build OCCT from source on Windows (if not cached)
         if: steps.cache-occt-windows.outputs.cache-hit != 'true'
@@ -223,6 +245,8 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Build in FreeBSD VM
         uses: vmactions/freebsd-vm@v1
@@ -230,7 +254,9 @@ jobs:
           release: "14.1"
           usesh: true
           prepare: |
-            pkg install -y bash cmake ninja python311 py311-pip py311-pybind11 opencascade zip
+            pkg install -y bash cmake ninja python311 opencascade zip
+            python3.11 -m ensurepip --upgrade
+            python3.11 -m pip install --upgrade pip pybind11
           run: |
             export PYTHON_BIN=python3.11
             cd native
@@ -258,6 +284,8 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Build in OpenBSD VM
         uses: vmactions/openbsd-vm@v1
