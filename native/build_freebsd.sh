@@ -4,12 +4,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-PYTHON_BIN="${PYTHON_BIN:-python}"
+# FreeBSD Python is typically under /usr/local/bin/python3.x
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 
-if command -v pyenv >/dev/null 2>&1; then
-    if [ -f ".python-version" ]; then
-        PYTHON_BIN="$(pyenv which python)"
-    fi
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    # Fallback to common FreeBSD paths
+    for P in /usr/local/bin/python3.11 /usr/local/bin/python3.10 /usr/local/bin/python3.9 /usr/local/bin/python3; do
+        if [ -x "$P" ]; then
+            PYTHON_BIN="$P"
+            break
+        fi
+    done
 fi
 
 echo "Using Python: $PYTHON_BIN"
@@ -27,11 +32,19 @@ echo "pybind11 CMake dir: $PYBIND11_DIR"
 
 rm -rf build
 
+PLATFORM_FOLDER="freebsd-x64"
+
+# Common FreeBSD OCCT install location
+if [ -z "${OCCT_ROOT:-}" ] && [ -d "/usr/local/include/opencascade" ]; then
+    export OCCT_ROOT="/usr/local"
+    echo "Auto-detected FreeBSD OCCT: $OCCT_ROOT"
+fi
+
 cmake -S . -B build -G Ninja \
     -DPython_EXECUTABLE="$PYTHON_BIN" \
     -DPYTHON_EXECUTABLE="$PYTHON_BIN" \
     -Dpybind11_DIR="$PYBIND11_DIR" \
-    -DHIPPO_PLATFORM_FOLDER="linux-x64"
+    -DHIPPO_PLATFORM_FOLDER="$PLATFORM_FOLDER"
 
 cmake --build build
 
@@ -42,11 +55,11 @@ if [ -z "$MODULE_PATH" ]; then
     exit 1
 fi
 
-mkdir -p linux-x64
-cp "$MODULE_PATH" linux-x64/
+mkdir -p "$PLATFORM_FOLDER"
+cp "$MODULE_PATH" "$PLATFORM_FOLDER/"
 
 # Clean up stale plain-name .so to prevent ABI mismatch
-rm -f linux-x64/hippo_occ_core.so
+rm -f "$PLATFORM_FOLDER/hippo_occ_core.so"
 
 # ---------------------------------------------------------------------------
 # Auto-bundle OCCT libraries for standalone distribution
@@ -55,7 +68,7 @@ BUNDLE_AUTO="${BUNDLE_AUTO:-1}"
 if [ "$BUNDLE_AUTO" = "1" ]; then
     echo
     echo "Auto-bundling OCCT shared libraries..."
-    python3 "$SCRIPT_DIR/bundle_occt.py" --platform linux-x64 || echo "Warning: bundle_occt.py failed. Continuing anyway."
+    python3 "$SCRIPT_DIR/bundle_occt.py" --platform "$PLATFORM_FOLDER" || echo "Warning: bundle_occt.py failed. Continuing anyway."
 fi
 
 echo
@@ -63,7 +76,7 @@ echo "Build complete."
 echo "Development module:"
 echo "  $MODULE_PATH"
 echo "Extension module:"
-echo "  $SCRIPT_DIR/linux-x64/hippo_occ_core.so"
+echo "  $SCRIPT_DIR/$PLATFORM_FOLDER/hippo_occ_core.so"
 echo
 echo "Test in Blender:"
 echo "  import sys"

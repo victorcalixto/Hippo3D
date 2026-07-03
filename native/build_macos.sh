@@ -27,43 +27,54 @@ echo "pybind11 CMake dir: $PYBIND11_DIR"
 
 rm -rf build
 
-cmake -S . -B build -G Ninja \
+# Detect architecture (Intel vs Apple Silicon)
+ARCH=$(uname -m)
+if [ "$ARCH" = "arm64" ]; then
+    PLATFORM_FOLDER="macos-arm64"
+    OSX_ARCH="arm64"
+else
+    PLATFORM_FOLDER="macos-x64"
+    OSX_ARCH="x86_64"
+fi
+
+echo "Building for macOS architecture: $OSX_ARCH"
+
+# Attempt to auto-detect Homebrew OCCT prefix if not set
+if [ -z "${OCCT_ROOT:-}" ]; then
+    if [ -d "/opt/homebrew/opt/opencascade" ]; then
+        export OCCT_ROOT="/opt/homebrew/opt/opencascade"
+        echo "Auto-detected Homebrew OCCT (Apple Silicon): $OCCT_ROOT"
+    elif [ -d "/usr/local/opt/opencascade" ]; then
+        export OCCT_ROOT="/usr/local/opt/opencascade"
+        echo "Auto-detected Homebrew OCCT (Intel): $OCCT_ROOT"
+    fi
+fi
+
+cmake -S . -B build \
     -DPython_EXECUTABLE="$PYTHON_BIN" \
     -DPYTHON_EXECUTABLE="$PYTHON_BIN" \
     -Dpybind11_DIR="$PYBIND11_DIR" \
-    -DHIPPO_PLATFORM_FOLDER="linux-x64"
+    -DCMAKE_OSX_ARCHITECTURES="$OSX_ARCH" \
+    -DHIPPO_PLATFORM_FOLDER="$PLATFORM_FOLDER"
 
 cmake --build build
 
-MODULE_PATH="$(find build -maxdepth 1 -name 'hippo_occ_core*.so' | sort | tail -n 1)"
+MODULE_PATH="$(find build -maxdepth 1 -name 'hippo_occ_core*.so' | head -n 1)"
 
 if [ -z "$MODULE_PATH" ]; then
     echo "Build finished, but hippo_occ_core*.so was not found in native/build."
     exit 1
 fi
 
-mkdir -p linux-x64
-cp "$MODULE_PATH" linux-x64/
-
-# Clean up stale plain-name .so to prevent ABI mismatch
-rm -f linux-x64/hippo_occ_core.so
-
-# ---------------------------------------------------------------------------
-# Auto-bundle OCCT libraries for standalone distribution
-# ---------------------------------------------------------------------------
-BUNDLE_AUTO="${BUNDLE_AUTO:-1}"
-if [ "$BUNDLE_AUTO" = "1" ]; then
-    echo
-    echo "Auto-bundling OCCT shared libraries..."
-    python3 "$SCRIPT_DIR/bundle_occt.py" --platform linux-x64 || echo "Warning: bundle_occt.py failed. Continuing anyway."
-fi
+mkdir -p "$PLATFORM_FOLDER"
+cp "$MODULE_PATH" "$PLATFORM_FOLDER/hippo_occ_core.so"
 
 echo
 echo "Build complete."
 echo "Development module:"
 echo "  $MODULE_PATH"
 echo "Extension module:"
-echo "  $SCRIPT_DIR/linux-x64/hippo_occ_core.so"
+echo "  $SCRIPT_DIR/$PLATFORM_FOLDER/hippo_occ_core.so"
 echo
 echo "Test in Blender:"
 echo "  import sys"

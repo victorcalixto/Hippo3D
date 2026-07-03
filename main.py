@@ -6,6 +6,7 @@ from .state import *
 from .cplanes import *
 from .cplanes import _builtin_cplane_axes
 from .geometry import *
+import json
 
 # -----------------------------------------------------------------------------
 # Surface helpers - Phase 2
@@ -283,6 +284,10 @@ def run_simple_cad_command(context, cmd):
     raw = cmd.strip().lower()
     compact = raw.replace(" ", "")
 
+    occ_result = run_occ_command_from_text(context, cmd)
+    if occ_result[0] is not None:
+        return occ_result
+
     if compact in {"mesh", "tomesh", "convertmesh", "converttomesh", "ctm"}:
         return convert_selected_to_mesh(context)
 
@@ -367,6 +372,88 @@ def run_simple_cad_command(context, cmd):
 
     if compact in {"arc"}:
         return False, "Arc is interactive. Type arc, then pick 3 points."
+
+    if compact in {"pointson", "occpointson", "points_on"}:
+        return hippo_occ_points_on_command(context)
+
+    if compact in {"pointsoff", "occpointsoff", "points_off"}:
+        return hippo_occ_points_off_command(context)
+
+    if compact in {"occloft", "occ_loft", "occlo", "occ_lo"}:
+        return run_occ_loft_command(context)
+
+    if compact in {"occrevolve", "occ_revolve", "occrev", "occ_rev"}:
+        return run_occ_revolve_command(context)
+
+    if compact in {"occsweep1", "occ_sweep1", "occsweep", "occ_sweep"}:
+        return run_occ_sweep1_command(context)
+
+    if compact in {"occplanarsrf", "occ_planarsrf", "occplanar", "occ_planar"}:
+        return run_occ_planarsrf_command(context)
+
+    if compact in {"occedgesrf", "occ_edgesrf", "occedge", "occ_edge"}:
+        return run_occ_edgesrf_command(context)
+
+    if compact in {"occbooleanfuse", "occ_boolean_fuse", "occfuse", "occ_fuse", "occunion"}:
+        return run_occ_boolean_fuse_command(context)
+
+    if compact in {"occbooleancut", "occ_boolean_cut", "occcut", "occ_cut", "occdifference"}:
+        return run_occ_boolean_cut_command(context)
+
+    if compact in {"occbooleancommon", "occ_boolean_common", "occcommon", "occ_common", "occintersection"}:
+        return run_occ_boolean_common_command(context)
+
+    if compact in {"occsplit", "occ_split", "occspl", "occ_spl", "occsplitter"}:
+        return run_occ_split_command(context)
+
+    if compact in {"occrebuild", "occ_rebuild", "rebuildocc", "rebuild_occ"}:
+        obj = hippo_occ_active_or_parent(context)
+        if obj is None:
+            return False, "Select an OCC object first."
+        return hippo_occ_history_rebuild(context, obj)
+
+    if compact in {"occshowsources", "occ_show_sources", "showsources", "show_sources"}:
+        obj = hippo_occ_active_or_parent(context)
+        if obj is None:
+            return False, "Select an OCC object first."
+        return hippo_occ_history_show_sources(context, obj)
+
+    parts = raw.split()
+    if parts and parts[0] in {"stepout", "step_out", "exportstep", "export_step"}:
+        return _run_occ_export_step_command(context, raw)
+
+    if parts and parts[0] in {"stepin", "step_in", "importstep", "import_step"}:
+        return _run_occ_import_step_command(context, raw)
+
+    if parts and parts[0] in {"3dmout", "3dm_out", "export3dm", "export_3dm"}:
+        return _run_occ_export_3dm_command(context, raw)
+
+    if parts and parts[0] in {"3dmin", "3dm_in", "import3dm", "import_3dm"}:
+        return _run_occ_import_3dm_command(context, raw)
+
+    if compact in {"occtomesh", "occ_to_mesh", "occmeshout", "occmesh"}:
+        return run_occ_to_mesh_command(context)
+
+    if compact in {"meshtoocc", "mesh_to_occ", "tomeshocc", "meshtooccshape"}:
+        return run_mesh_to_occ_command(context)
+
+    if compact in {"optimizetogrid", "optimize_to_grid", "meshgrid", "gridify", "resamplegrid", "togrid"}:
+        return run_optimize_to_grid_command(context)
+
+    if compact in {"extractisocurves", "isocurves", "extractiso", "extractu", "extractv"}:
+        return run_extract_isocurves_command(context)
+
+    if compact in {"interactiveiso", "iso_interactive", "isocurveinteractive", "clickiso", "isoclick"}:
+        result = bpy.ops.cad.occ_extract_iso_interactive("INVOKE_DEFAULT")
+        if "FINISHED" in result:
+            return True, "Interactive isocurve extraction started. Click on surface | TAB toggles U/V | ESC finishes."
+        return False, "Could not start interactive isocurve extraction."
+
+    if compact in {"explodeocc", "explode_occ", "occexplode", "brepexplode", "explodebrep"}:
+        return run_explode_occ_command(context)
+
+    if compact in {"occtonurbs", "occ_to_nurbs", "curvetonurbs", "occnurbs"}:
+        return run_occ_to_nurbs_command(context)
 
     if compact in {"railrevolve"}:
         return hippo_command_not_ready("RailRevolve")
@@ -650,6 +737,15 @@ def resolve_snap(context, event, raw_point):
 
 
 def command_label():
+    if getattr(state, "occ_primitive", ""):
+        index = len(getattr(state, "occ_values", []))
+        prompts = getattr(state, "occ_prompts", [])
+        defaults = getattr(state, "occ_defaults", [])
+        if index < len(prompts):
+            default = defaults[index] if index < len(defaults) else ""
+            if default == "CURSOR":
+                default = "Cursor"
+            return f"Hippo3D[{active_cplane_label(bpy.context)}]> {state.command} | {prompts[index]} <{default}> (click or type): {state.input_text}"
     if state.command:
         return f"Hippo3D[{active_cplane_label(bpy.context)}]> {state.command} {state.input_text}"
     return f"Hippo3D[{active_cplane_label(bpy.context)}]> {state.input_text}"
@@ -664,6 +760,11 @@ def finish_command(context):
     state.input_text = ""
     state.snap_point = None
     state.snap_label = ""
+    state.occ_primitive = ""
+    state.occ_values = []
+    state.occ_prompts = []
+    state.occ_defaults = []
+    state.occ_origin = None
     context.workspace.status_text_set(None)
     if getattr(state, "cursor_set", False):
         try:
@@ -1281,7 +1382,19 @@ class Hippo3D_OT_Command(Operator):
         txt = state.input_text.strip()
         state.input_text = ""
 
-        if not txt:
+        if not txt and not getattr(state, "occ_primitive", ""):
+            context.workspace.status_text_set(command_label())
+            return
+
+        if getattr(state, "occ_primitive", ""):
+            ok, msg = handle_occ_progressive_input(context, txt)
+            if ok is None:
+                pass
+            elif ok:
+                if msg:
+                    self.report({"INFO"}, msg)
+            else:
+                self.report({"WARNING"}, msg)
             context.workspace.status_text_set(command_label())
             return
 
@@ -1371,6 +1484,28 @@ class Hippo3D_OT_Command(Operator):
             raw_parts = txt.split(maxsplit=1)
             cmd = raw_parts[0].lower()
             args_text = raw_parts[1] if len(raw_parts) > 1 else ""
+
+            occ_aliases = {
+                "occbox": "box",
+                "occ_box": "box",
+                "occsphere": "sphere",
+                "occ_sphere": "sphere",
+                "occcylinder": "cylinder",
+                "occ_cylinder": "cylinder",
+                "occcone": "cone",
+                "occ_cone": "cone",
+                "occtorus": "torus",
+                "occ_torus": "torus",
+            }
+
+            if cmd in occ_aliases:
+                if args_text:
+                    ok, msg = run_occ_primitive_command(context, occ_aliases[cmd], args_text)
+                    self.report({"INFO" if ok else "WARNING"}, msg)
+                    finish_occ_command(context)
+                    return
+                start_occ_progressive_command(context, occ_aliases[cmd])
+                return
 
             if start_command_with_args(cmd, args_text):
                 return
@@ -1555,6 +1690,14 @@ class Hippo3D_OT_Command(Operator):
             return {"RUNNING_MODAL"}
 
         if event.type == "LEFTMOUSE" and event.value == "PRESS":
+            if getattr(state, "occ_primitive", "") and len(getattr(state, "occ_values", [])) == 0:
+                self.update_mouse_point(context, event)
+                ok, msg = handle_occ_progressive_point(context, state.mouse_world)
+                if ok is False:
+                    self.report({"WARNING"}, msg)
+                context.workspace.status_text_set(command_label())
+                return {"RUNNING_MODAL"}
+
             if state.command == "cplane_face":
                 hit = raycast_mesh_face(context, event)
                 ok, msg = create_cplane_from_face_hit(
@@ -1578,6 +1721,9 @@ class Hippo3D_OT_Command(Operator):
 
         if event.type in {"RET", "NUMPAD_ENTER"} and event.value == "PRESS":
             self.process_enter(context)
+            if getattr(state, "occ_finished", False):
+                state.occ_finished = False
+                return {"FINISHED"}
             return {"RUNNING_MODAL"}
 
         if event.type == "BACK_SPACE" and event.value == "PRESS":
@@ -4234,7 +4380,7 @@ def create_ellipse_from_2_points(context, p0, p1):
 
 class Hippo3D_PT_MainPanel(Panel):
     bl_label = "Hippo3D"
-    bl_idname = "Hippo3D_PT_main_panel"
+    bl_idname = "HIPPO3D_PT_main_panel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Hippo3D"
@@ -4299,6 +4445,55 @@ class Hippo3D_PT_MainPanel(Panel):
         col.operator("cad.planarsrf", text="Planar Surface", icon="MESH_PLANE")
         col.operator("cad.hippo_native_status", text="Native C Backend Status")
 
+        col.separator()
+        col.label(text="OCC Primitives")
+        col.prop(context.scene, "hippo_occ_box_width", text="Box W")
+        col.prop(context.scene, "hippo_occ_box_depth", text="Box D")
+        col.prop(context.scene, "hippo_occ_box_height", text="Box H")
+        col.operator("cad.occ_box", text="OCC Box", icon="MESH_CUBE")
+        col.prop(context.scene, "hippo_occ_sphere_radius", text="Sphere R")
+        col.operator("cad.occ_sphere", text="OCC Sphere", icon="MESH_UVSPHERE")
+        col.prop(context.scene, "hippo_occ_cylinder_radius", text="Cyl R")
+        col.prop(context.scene, "hippo_occ_cylinder_height", text="Cyl H")
+        col.operator("cad.occ_cylinder", text="OCC Cylinder", icon="MESH_CYLINDER")
+        col.prop(context.scene, "hippo_occ_cone_radius1", text="Cone R1")
+        col.prop(context.scene, "hippo_occ_cone_radius2", text="Cone R2")
+        col.prop(context.scene, "hippo_occ_cone_height", text="Cone H")
+        col.operator("cad.occ_cone", text="OCC Cone")
+        col.prop(context.scene, "hippo_occ_torus_major", text="Torus Major")
+        col.prop(context.scene, "hippo_occ_torus_minor", text="Torus Minor")
+        col.operator("cad.occ_torus", text="OCC Torus")
+
+        col.separator()
+        col.label(text="OCC Boolean Operations")
+        col.operator("cad.occ_boolean_fuse", text="Boolean Union (Fuse)")
+        col.operator("cad.occ_boolean_cut", text="Boolean Difference (Cut)")
+        col.operator("cad.occ_boolean_common", text="Boolean Intersection")
+
+        col.separator()
+        col.label(text="OCC Surface / Trim")
+        col.operator("cad.occ_loft", text="OCC Loft")
+        col.operator("cad.occ_revolve", text="OCC Revolve")
+        col.operator("cad.occ_sweep1", text="OCC Sweep")
+        col.operator("cad.occ_planar_srf", text="OCC Planar Surface")
+        col.operator("cad.occ_edge_srf", text="OCC Edge Surface")
+        col.operator("cad.occ_split", text="OCC Split")
+        col.operator("cad.occ_toggle_points", text="Toggle Control Points")
+
+        col.separator()
+        col.label(text="OCC / Mesh Conversion")
+        col.prop(context.scene, "hippo_grid_res_u", text="Grid U")
+        col.prop(context.scene, "hippo_grid_res_v", text="Grid V")
+        col.operator("cad.optimize_to_grid", text="Optimize Mesh to Grid", icon="MESH_GRID")
+        col.operator("cad.occ_to_mesh", text="OCC to Mesh", icon="MESH_DATA")
+        col.operator("cad.mesh_to_occ", text="Mesh to OCC", icon="MESH_CUBE")
+
+        col.separator()
+        col.label(text="OCC Explode / Isocurves")
+        col.operator("cad.occ_extract_iso_interactive", text="Extract Isocurve (Interactive)", icon="CURVE_BEZCURVE")
+        col.operator("cad.occ_extract_isocurves", text="Extract All Isocurves", icon="CURVE_BEZCURVE")
+        col.operator("cad.occ_explode", text="Explode to Surfaces", icon="MESH_GRID")
+        col.operator("cad.occ_to_nurbs", text="OCC Curve to NURBS", icon="CURVE_BEZCURVE")
 
         layout.separator()
         box = layout.box()
@@ -4377,6 +4572,16 @@ class Hippo3D_PT_MainPanel(Panel):
         row = layout.row(align=True)
         row.prop(context.scene, "cad_ortho", text="Ortho F8", toggle=True)
         row.operator("cad.toggle_ortho", text="Toggle")
+
+        layout.separator()
+        box = layout.box()
+        box.label(text="Import / Export")
+        row = box.row(align=True)
+        row.operator("hippo.import_step", text="Import STEP", icon="IMPORT")
+        row.operator("hippo.export_step", text="Export STEP", icon="EXPORT")
+        row = box.row(align=True)
+        row.operator("hippo.import_3dm", text="Import 3DM", icon="IMPORT")
+        row.operator("hippo.export_3dm", text="Export 3DM", icon="EXPORT")
 
         layout.separator()
         box = layout.box()
@@ -4477,6 +4682,109 @@ class Hippo3D_OT_ToggleCPlaneVisibilityExplicit(Operator):
         return {"FINISHED"}
 
 
+
+
+# -----------------------------------------------------------------------------
+# Toolbar tools
+# -----------------------------------------------------------------------------
+
+class Hippo3D_WST_LineTool(WorkSpaceTool):
+    bl_space_type = "VIEW_3D"
+    bl_context_mode = "OBJECT"
+    bl_idname = "cad_blender.line_tool"
+    bl_label = "Line"
+    bl_description = "Start Line command"
+    bl_icon = (ICON_DIR / "line").as_posix()
+    bl_widget = None
+    bl_keymap = (("cad.start_line", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
+
+
+class Hippo3D_WST_PolylineTool(WorkSpaceTool):
+    bl_space_type = "VIEW_3D"
+    bl_context_mode = "OBJECT"
+    bl_idname = "cad_blender.polyline_tool"
+    bl_label = "Polyline"
+    bl_description = "Start Polyline command"
+    bl_icon = (ICON_DIR / "polyline").as_posix()
+    bl_widget = None
+    bl_keymap = (("cad.start_polyline", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
+
+
+class Hippo3D_WST_RectangleTool(WorkSpaceTool):
+    bl_space_type = "VIEW_3D"
+    bl_context_mode = "OBJECT"
+    bl_idname = "cad_blender.rectangle_tool"
+    bl_label = "Rectangle"
+    bl_description = "Start Rectangle command"
+    bl_icon = (ICON_DIR / "rectangle").as_posix()
+    bl_widget = None
+    bl_keymap = (("cad.start_rectangle", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
+
+
+class Hippo3D_WST_CircleTool(WorkSpaceTool):
+    bl_space_type = "VIEW_3D"
+    bl_context_mode = "OBJECT"
+    bl_idname = "cad_blender.circle_tool"
+    bl_label = "Circle"
+    bl_description = "Start Circle command"
+    bl_icon = (ICON_DIR / "circle").as_posix()
+    bl_widget = None
+    bl_keymap = (("cad.start_circle", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
+
+
+class Hippo3D_WST_NurbsTool(WorkSpaceTool):
+    bl_space_type = "VIEW_3D"
+    bl_context_mode = "OBJECT"
+    bl_idname = "cad_blender.nurbs_tool"
+    bl_label = "NURBS Curve"
+    bl_description = "Start NURBS Curve command"
+    bl_icon = (ICON_DIR / "nurbs").as_posix()
+    bl_widget = None
+    bl_keymap = (("cad.start_nurbs", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
+
+
+class Hippo3D_WST_ArcTool(WorkSpaceTool):
+    bl_space_type = "VIEW_3D"
+    bl_context_mode = "OBJECT"
+    bl_idname = "hippo3d.arc_tool"
+    bl_label = "Arc"
+    bl_description = "Start Arc command"
+    bl_icon = (ICON_DIR / "arc").as_posix()
+    bl_widget = None
+    bl_keymap = (("cad.start_arc", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
+
+
+class Hippo3D_WST_EllipseTool(WorkSpaceTool):
+    bl_space_type = "VIEW_3D"
+    bl_context_mode = "OBJECT"
+    bl_idname = "hippo3d.ellipse_tool"
+    bl_label = "Ellipse"
+    bl_description = "Start Ellipse command"
+    bl_icon = (ICON_DIR / "ellipse").as_posix()
+    bl_widget = None
+    bl_keymap = (("cad.ellipse", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
+
+
+class Hippo3D_WST_PolygonTool(WorkSpaceTool):
+    bl_space_type = "VIEW_3D"
+    bl_context_mode = "OBJECT"
+    bl_idname = "hippo3d.polygon_tool"
+    bl_label = "Polygon"
+    bl_description = "Create Polygon"
+    bl_icon = (ICON_DIR / "polygon").as_posix()
+    bl_widget = None
+    bl_keymap = (("cad.polygon", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
+
+
+class Hippo3D_WST_XLineTool(WorkSpaceTool):
+    bl_space_type = "VIEW_3D"
+    bl_context_mode = "OBJECT"
+    bl_idname = "hippo3d.xline_tool"
+    bl_label = "XLine"
+    bl_description = "Start XLine command"
+    bl_icon = (ICON_DIR / "xline").as_posix()
+    bl_widget = None
+    bl_keymap = (("cad.xline", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
 
 
 # -----------------------------------------------------------------------------
@@ -4599,7 +4907,2940 @@ def create_arc_from_3_points(context, p0, p1, p2, segments=64):
     return obj
 
 
-classes = [Hippo3D_OT_Command, Hippo3D_OT_StartLine, Hippo3D_OT_StartPolyline, Hippo3D_OT_StartRectangle, Hippo3D_OT_StartCircle, Hippo3D_OT_StartNurbs, Hippo3D_OT_SetSelectedNurbsDegree, Hippo3D_OT_Hippo3D_Loft, CAD_OT_LoftSurface, CAD_OT_LoftRealModifier, HIPPO_OT_NativeStatus, HIPPO_OT_StartArc, HIPPO_OT_Ellipse, HIPPO_OT_Polygon, HIPPO_OT_Project, HIPPO_OT_Array, HIPPO_OT_Explode, HIPPO_OT_XLine, HIPPO_OT_Offset,  HIPPO_OT_Trim, HIPPO_OT_Hippo3D_PlanarSurface, HIPPO_OT_Hippo3D_EdgeSurface, Hippo3D_OT_Hippo3D_Revolve, Hippo3D_OT_ClearRevolveAxis, Hippo3D_OT_SetRevolveAxis, CAD_OT_PipeSurface, CAD_OT_ExtrudeSurface, Hippo3D_OT_StartCommand, Hippo3D_OT_ToggleOrtho, Hippo3D_OT_ConvertToMesh, Hippo3D_OT_Join, Hippo3D_OT_SaveCPlane, Hippo3D_OT_RestoreCPlane, Hippo3D_OT_StartCPlane3Pt, Hippo3D_OT_StartCPlaneFace, Hippo3D_OT_StartCPlaneCurvePerp, Hippo3D_OT_RotateCPlane, Hippo3D_OT_StartCPlaneRotate3Pt, Hippo3D_OT_ApplyCPlaneAxisRotation, Hippo3D_OT_StartCPlaneAxisRotate, Hippo3D_OT_StartCPlaneMove, Hippo3D_OT_CameraToCPlane, Hippo3D_OT_ViewToCPlane, Hippo3D_OT_StartCPlaneZAxis, Hippo3D_OT_StartCPlaneXAxis, Hippo3D_OT_ToggleCPlaneVisibilityExplicit, Hippo3D_OT_ActivateCPlaneExplicit, Hippo3D_OT_RefreshCPlaneList, Hippo3D_OT_DeleteSelectedCPlane, Hippo3D_OT_ActivateSelectedCPlane, Hippo3D_OT_ToggleSelectedCPlaneVisible, Hippo3D_UL_CPlaneList, Hippo3D_CPlaneListItem, Hippo3D_OT_SetBuiltinCPlane, Hippo3D_OT_RestoreCPlaneByName, Hippo3D_OT_SetCPlaneVisible, Hippo3D_OT_DeleteCPlane, Hippo3D_PT_MainPanel]
+
+
+# -----------------------------------------------------------------------------
+# OCC primitive commands
+# -----------------------------------------------------------------------------
+
+def hippo_load_occ_core():
+    import importlib.util
+    import os
+    import sys
+    from pathlib import Path
+
+    addon_dir = Path(__file__).resolve().parent
+    native_candidates = [
+        addon_dir / "native" / "windows-x64",
+        addon_dir / "native" / "linux-x64",
+        addon_dir / "native" / "macos-arm64",
+        addon_dir / "native" / "macos-x64",
+        addon_dir / "native" / "build",
+    ]
+
+    # On Windows, DLLs must be in PATH or next to the .pyd.
+    # We temporarily extend PATH with the native directory so dependent
+    # DLLs (TKernel.dll, etc.) are found without polluting sys.path.
+    _original_path = os.environ.get("PATH", "")
+    for native_dir in native_candidates:
+        if not native_dir.exists():
+            continue
+        native_str = str(native_dir)
+        if native_str not in _original_path.split(os.pathsep):
+            os.environ["PATH"] = native_str + os.pathsep + _original_path
+        # Find the module file (prefer ABI-tagged .so to avoid mismatch)
+        for pattern in ("hippo_occ_core*.pyd", "hippo_occ_core.cpython*.so", "hippo_occ_core*.so"):
+            matches = sorted(native_dir.glob(pattern))
+            if matches:
+                mod_path = matches[-1]
+                spec = importlib.util.spec_from_file_location(
+                    "hippo_occ_core", str(mod_path)
+                )
+                if spec and spec.loader:
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules["hippo_occ_core"] = module
+                    spec.loader.exec_module(module)
+                    return module
+
+    raise ImportError("hippo_occ_core native module not found in any native/ folder")
+
+
+def hippo_parse_occ_args(context, args_text):
+    tokens = args_text.replace(";", " ").split()
+    origin = None
+    values = []
+
+    for token in tokens:
+        point = parse_point(token, context, None)
+        if point is not None and "," in token and origin is None:
+            origin = point
+            continue
+
+        try:
+            values.append(float(token))
+        except Exception:
+            raise ValueError(f"Could not parse OCC argument: {token}")
+
+    if origin is None:
+        origin = context.scene.cursor.location.copy()
+
+    return origin, values
+
+
+
+
+def hippo_get_occ_display_material():
+    mat = bpy.data.materials.get("Hippo3D_OCC_Display")
+    if mat is None:
+        mat = bpy.data.materials.new("Hippo3D_OCC_Display")
+        mat.diffuse_color = (0.55, 0.72, 0.95, 0.55)
+    return mat
+
+def hippo_create_occ_mesh_object(context, name, data, location=None):
+    vertices = data.get("vertices", [])
+    faces = data.get("faces", [])
+
+    mesh = bpy.data.meshes.new(name + "_Mesh")
+    mesh.from_pydata(vertices, [], faces)
+
+    for polygon in mesh.polygons:
+        polygon.use_smooth = True
+
+    mesh.update()
+
+    obj = bpy.data.objects.new(name, mesh)
+
+    if location is None:
+        location = context.scene.cursor.location.copy()
+
+    obj.location = location
+
+    mat = hippo_get_occ_display_material()
+    obj.data.materials.append(mat)
+    obj["hippo_kernel"] = "occ"
+    obj["hippo_occ_preview"] = True
+    obj["hippo_occ_display_cache"] = True
+    obj["hippo_occ_edit_locked"] = True
+    obj["hippo_occ_shape_id"] = int(data.get("shape_id", -1))
+    obj["hippo_occ_edges_json"] = hippo_occ_edges_json_from_data(data)
+    obj.show_wire = False
+    obj.show_in_front = False
+
+    context.collection.objects.link(obj)
+
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+
+    return obj
+
+
+
+def hippo_occ_edges_json_from_data(data):
+    try:
+        return json.dumps(data.get("edges", []))
+    except Exception:
+        return "[]"
+
+
+def hippo_get_occ_edge_polylines(obj):
+    raw = obj.get("hippo_occ_edges_json", "[]")
+    try:
+        return json.loads(raw)
+    except Exception:
+        return []
+
+
+def draw_occ_edge_cache_callback():
+    context = bpy.context
+    if not context or not context.scene:
+        return
+
+    shader = gpu.shader.from_builtin("UNIFORM_COLOR")
+    gpu.state.line_width_set(1.6)
+
+    for obj in context.scene.objects:
+        if obj.get("hippo_kernel") != "occ":
+            continue
+
+        edges = hippo_get_occ_edge_polylines(obj)
+        if not edges:
+            continue
+
+        matrix = obj.matrix_world
+
+        for polyline in edges:
+            if len(polyline) < 2:
+                continue
+
+            coords = []
+            for a, b in zip(polyline[:-1], polyline[1:]):
+                pa = matrix @ Vector((a[0], a[1], a[2]))
+                pb = matrix @ Vector((b[0], b[1], b[2]))
+                coords.extend([pa, pb])
+
+            if coords:
+                batch = batch_for_shader(shader, "LINES", {"pos": coords})
+                shader.bind()
+                shader.uniform_float("color", (0.2, 0.85, 1.0, 1.0))
+                batch.draw(shader)
+
+    gpu.state.line_width_set(1.0)
+
+
+def run_occ_primitive_command(context, primitive, args_text=""):
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+
+    primitive = primitive.lower().strip()
+
+    try:
+        origin, values = hippo_parse_occ_args(context, args_text)
+
+        if primitive == "box":
+            width = values[0] if len(values) >= 1 else 10.0
+            depth = values[1] if len(values) >= 2 else width
+            height = values[2] if len(values) >= 3 else width
+            data = occ.make_box_mesh(width, depth, height)
+            obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Box", data, origin)
+            obj["hippo_occ_width"] = width
+            obj["hippo_occ_depth"] = depth
+            obj["hippo_occ_height"] = height
+
+        elif primitive == "sphere":
+            radius = values[0] if len(values) >= 1 else 5.0
+            data = occ.make_sphere_mesh(radius)
+            obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Sphere", data, origin)
+            obj["hippo_occ_radius"] = radius
+
+        elif primitive == "cylinder":
+            radius = values[0] if len(values) >= 1 else 5.0
+            height = values[1] if len(values) >= 2 else 10.0
+            data = occ.make_cylinder_mesh(radius, height)
+            obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Cylinder", data, origin)
+            obj["hippo_occ_radius"] = radius
+            obj["hippo_occ_height"] = height
+
+        elif primitive == "cone":
+            radius1 = values[0] if len(values) >= 1 else 5.0
+            radius2 = values[1] if len(values) >= 2 else 0.0
+            height = values[2] if len(values) >= 3 else 10.0
+            data = occ.make_cone_mesh(radius1, radius2, height)
+            obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Cone", data, origin)
+            obj["hippo_occ_radius1"] = radius1
+            obj["hippo_occ_radius2"] = radius2
+            obj["hippo_occ_height"] = height
+
+        elif primitive == "torus":
+            major_radius = values[0] if len(values) >= 1 else 5.0
+            minor_radius = values[1] if len(values) >= 2 else 1.25
+            data = occ.make_torus_mesh(major_radius, minor_radius)
+            obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Torus", data, origin)
+            obj["hippo_occ_major_radius"] = major_radius
+            obj["hippo_occ_minor_radius"] = minor_radius
+
+        else:
+            return False, f"Unknown OCC primitive: {primitive}"
+
+        obj["hippo_occ_type"] = primitive
+        return True, f"Created OCC {primitive.title()}."
+
+    except Exception as exc:
+        return False, f"OCC {primitive} failed: {exc}"
+
+
+def run_occ_command_from_text(context, text):
+    parts = text.strip().split(maxsplit=1)
+    command = parts[0].lower() if parts else ""
+    args_text = parts[1] if len(parts) > 1 else ""
+
+    aliases = {
+        "occbox": "box",
+        "occ_box": "box",
+        "occsphere": "sphere",
+        "occ_sphere": "sphere",
+        "occcylinder": "cylinder",
+        "occ_cylinder": "cylinder",
+        "occcone": "cone",
+        "occ_cone": "cone",
+        "occtorus": "torus",
+        "occ_torus": "torus",
+    }
+
+    primitive = aliases.get(command)
+    if primitive is None:
+        return None, ""
+
+    return run_occ_primitive_command(context, primitive, args_text)
+
+
+
+def hippo_occ_progressive_spec(primitive):
+    specs = {
+        "box": (["Insertion Point", "Width", "Depth", "Height"], ["CURSOR", 10.0, 10.0, 10.0]),
+        "sphere": (["Center", "Radius"], ["CURSOR", 5.0]),
+        "cylinder": (["Base Center", "Radius", "Height"], ["CURSOR", 5.0, 10.0]),
+        "cone": (["Base Center", "Radius 1", "Radius 2", "Height"], ["CURSOR", 5.0, 0.0, 10.0]),
+        "torus": (["Center", "Major Radius", "Minor Radius"], ["CURSOR", 5.0, 1.25]),
+    }
+    return specs.get(primitive)
+
+
+def start_occ_progressive_command(context, primitive):
+    spec = hippo_occ_progressive_spec(primitive)
+    if spec is None:
+        return False
+
+    prompts, defaults = spec
+
+    state.command = "occ" + primitive
+    state.occ_primitive = primitive
+    state.occ_values = []
+    state.occ_prompts = prompts
+    state.occ_defaults = defaults
+    state.occ_origin = None
+    state.points = []
+    state.active = True
+
+    context.workspace.status_text_set(command_label())
+    return True
+
+
+
+def finish_occ_command(context):
+    finish_command(context)
+
+    state.input_text = ""
+    state.command = ""
+    state.active = False
+    state.points = []
+    state.occ_primitive = ""
+    state.occ_values = []
+    state.occ_prompts = []
+    state.occ_defaults = []
+    state.occ_origin = None
+    state.occ_finished = True
+
+    context.workspace.status_text_set(command_label())
+
+    if context.area:
+        context.area.tag_redraw()
+
+
+def handle_occ_progressive_input(context, text):
+    primitive = getattr(state, "occ_primitive", "")
+    if not primitive:
+        return None, ""
+
+    index = len(getattr(state, "occ_values", []))
+    defaults = getattr(state, "occ_defaults", [])
+
+    if index == 0:
+        if not text.strip():
+            state.occ_origin = context.scene.cursor.location.copy()
+            state.occ_values.append("ORIGIN")
+            context.workspace.status_text_set(command_label())
+            return True, ""
+
+        point = parse_point(text.strip(), context, None)
+        if point is None:
+            return False, "Invalid insertion point. Type x,y,z or press Enter to use the 3D cursor."
+
+        state.occ_origin = point
+        state.occ_values.append("ORIGIN")
+        context.workspace.status_text_set(command_label())
+        return True, ""
+
+    if text.strip() == "":
+        if index < len(defaults):
+            value = defaults[index]
+        else:
+            return False, "Missing OCC value."
+    else:
+        try:
+            value = float(text.strip())
+        except Exception:
+            return False, f"Expected a number, got: {text}"
+
+    state.occ_values.append(value)
+
+    if len(state.occ_values) < len(state.occ_prompts):
+        context.workspace.status_text_set(command_label())
+        return True, ""
+
+    numeric_values = state.occ_values[1:]
+    args_text = " ".join(str(v) for v in numeric_values)
+
+    origin = getattr(state, "occ_origin", None)
+    if origin is None:
+        origin = context.scene.cursor.location.copy()
+
+    origin_prefix = f"{origin.x},{origin.y},{origin.z}"
+    ok, msg = run_occ_primitive_command(context, primitive, origin_prefix + " " + args_text)
+    finish_occ_command(context)
+    return ok, msg
+
+
+
+def handle_occ_progressive_point(context, point):
+    primitive = getattr(state, "occ_primitive", "")
+    if not primitive:
+        return None, ""
+
+    if len(getattr(state, "occ_values", [])) != 0:
+        return None, ""
+
+    state.occ_origin = point.copy()
+    state.occ_values.append("ORIGIN")
+    context.workspace.status_text_set(command_label())
+    return True, ""
+
+
+class HIPPO_OT_OCCBox(Operator):
+    bl_idname = "cad.occ_box"
+    bl_label = "OCC Box"
+    bl_description = "Create an OpenCascade box preview mesh"
+
+    width: FloatProperty(name="Width", default=10.0, min=0.001)
+    depth: FloatProperty(name="Depth", default=10.0, min=0.001)
+    height: FloatProperty(name="Height", default=10.0, min=0.001)
+
+    def execute(self, context):
+        ok, msg = run_occ_primitive_command(context, "box", f"{self.width} {self.depth} {self.height}")
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+
+class HIPPO_OT_OCCSphere(Operator):
+    bl_idname = "cad.occ_sphere"
+    bl_label = "OCC Sphere"
+    bl_description = "Create an OpenCascade sphere preview mesh"
+
+    radius: FloatProperty(name="Radius", default=5.0, min=0.001)
+
+    def execute(self, context):
+        ok, msg = run_occ_primitive_command(context, "sphere", f"{self.radius}")
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+
+class HIPPO_OT_OCCCylinder(Operator):
+    bl_idname = "cad.occ_cylinder"
+    bl_label = "OCC Cylinder"
+    bl_description = "Create an OpenCascade cylinder preview mesh"
+
+    radius: FloatProperty(name="Radius", default=5.0, min=0.001)
+    height: FloatProperty(name="Height", default=10.0, min=0.001)
+
+    def execute(self, context):
+        ok, msg = run_occ_primitive_command(context, "cylinder", f"{self.radius} {self.height}")
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+
+class HIPPO_OT_OCCCone(Operator):
+    bl_idname = "cad.occ_cone"
+    bl_label = "OCC Cone"
+    bl_description = "Create an OpenCascade cone preview mesh"
+
+    radius1: FloatProperty(name="Radius 1", default=5.0, min=0.001)
+    radius2: FloatProperty(name="Radius 2", default=0.0, min=0.0)
+    height: FloatProperty(name="Height", default=10.0, min=0.001)
+
+    def execute(self, context):
+        ok, msg = run_occ_primitive_command(context, "cone", f"{self.radius1} {self.radius2} {self.height}")
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+
+class HIPPO_OT_OCCTorus(Operator):
+    bl_idname = "cad.occ_torus"
+    bl_label = "OCC Torus"
+    bl_description = "Create an OpenCascade torus preview mesh"
+
+    major_radius: FloatProperty(name="Major Radius", default=5.0, min=0.001)
+    minor_radius: FloatProperty(name="Minor Radius", default=1.25, min=0.001)
+
+    def execute(self, context):
+        ok, msg = run_occ_primitive_command(context, "torus", f"{self.major_radius} {self.minor_radius}")
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+
+# ---------------------------------------------------------------------------
+# OCC Curve / Wire creation helpers
+# ---------------------------------------------------------------------------
+
+def _occ_blender_curve_to_wire(obj, occ):
+    """Convert a Blender CURVE object's first spline to an OCC wire shape_id.
+    Returns (shape_id, msg) where msg is None on success."""
+    if not obj or obj.type != "CURVE" or not obj.data.splines:
+        return None, "Not a valid curve object."
+    spline = obj.data.splines[0]
+    try:
+        if spline.type in {"NURBS", "BEZIER"}:
+            cvs = []
+            if spline.type == "NURBS":
+                for pt in spline.points:
+                    cvs.append((pt.co[0], pt.co[1], pt.co[2], pt.co[3]))
+            else:
+                for bp in spline.bezier_points:
+                    cvs.append((bp.co.x, bp.co.y, bp.co.z, 1.0))
+            n = len(cvs)
+            if n < 2:
+                return None, "Curve has too few control points."
+            degree = max(1, int(getattr(spline, "order_u", 2)) - 1)
+            degree = min(degree, n - 1)
+            closed = getattr(spline, "use_cyclic_u", False)
+            if closed and degree >= 1 and n > degree:
+                cvs = cvs + cvs[:degree]
+                n = len(cvs)
+                periodic = False
+            else:
+                periodic = False
+            unique_count = n - degree + 1
+            if unique_count < 2:
+                return None, f"Cannot build B-spline: {n} pts, degree {degree}."
+            knots = [float(i) for i in range(unique_count)]
+            internal = max(0, n - degree - 1)
+            mults = [degree + 1] + [1] * internal + [degree + 1]
+            shape_id = occ.make_nurbs_curve(cvs, knots, mults, degree, periodic)
+            mw = obj.matrix_world
+            mat = [
+                mw[0][0], mw[0][1], mw[0][2], mw[0][3],
+                mw[1][0], mw[1][1], mw[1][2], mw[1][3],
+                mw[2][0], mw[2][1], mw[2][2], mw[2][3],
+                mw[3][0], mw[3][1], mw[3][2], mw[3][3]
+            ]
+            tid = occ.transform_shape(shape_id, mat)
+            occ.delete_shape(shape_id)
+            return tid, None
+        elif spline.type == "POLY":
+            pts3d = []
+            for pt in spline.points:
+                p = obj.matrix_world @ Vector((pt.co[0], pt.co[1], pt.co[2]))
+                pts3d.append((p.x, p.y, p.z))
+            if len(pts3d) < 2:
+                return None, "Polyline needs at least 2 points."
+            closed = getattr(spline, "use_cyclic_u", False)
+            shape_id = occ.make_polyline_wire(pts3d, closed)
+            return shape_id, None
+        else:
+            return None, f"Unsupported spline type: {spline.type}"
+    except Exception as exc:
+        return None, f"Curve conversion failed: {exc}"
+
+
+def _occ_selected_world_shapes(context, occ):
+    """Bake selected OCC objects' matrix_world into their shapes.
+    Returns (list_of_shape_ids, cleanup_fn). Each shape_id is a NEW
+    registry entry with world-space geometry. Call cleanup_fn() to delete
+    the temporary shapes when done."""
+    temp_ids = []
+    objs = []
+    for obj in context.selected_objects:
+        if obj.get("hippo_kernel") != "occ":
+            continue
+        sid = int(obj.get("hippo_occ_shape_id", -1))
+        if sid < 0 or not occ.has_shape(sid):
+            continue
+        mw = obj.matrix_world
+        mat = [
+            mw[0][0], mw[0][1], mw[0][2], mw[0][3],
+            mw[1][0], mw[1][1], mw[1][2], mw[1][3],
+            mw[2][0], mw[2][1], mw[2][2], mw[2][3],
+            mw[3][0], mw[3][1], mw[3][2], mw[3][3]
+        ]
+        ws_id = occ.transform_shape(sid, mat)
+        temp_ids.append(ws_id)
+        objs.append(obj)
+
+    def cleanup():
+        for tid in temp_ids:
+            try:
+                occ.delete_shape(tid)
+            except Exception:
+                pass
+    return temp_ids, cleanup, objs
+
+
+def _occ_selected_shape_ids_from_any(context, occ, min_count=1, max_count=None):
+    """Collect shape_ids from selection. Accepts both OCC objects and Blender CURVE objects.
+    Converts Blender curves to OCC wires automatically. Returns (ids, err_msg)."""
+    ids = []
+    for obj in context.selected_objects:
+        if obj.get("hippo_kernel") == "occ":
+            sid = int(obj.get("hippo_occ_shape_id", -1))
+            if sid >= 0 and occ.has_shape(sid):
+                ids.append(sid)
+            else:
+                return None, f"OCC shape not found for object '{obj.name}'."
+        elif obj.type == "CURVE":
+            tid, err = _occ_blender_curve_to_wire(obj, occ)
+            if err:
+                return None, f"'{obj.name}': {err}"
+            ids.append(tid)
+    if len(ids) < min_count:
+        return None, f"Select at least {min_count} curve or OCC object(s)."
+    if max_count is not None and len(ids) > max_count:
+        return None, f"Select at most {max_count} object(s)."
+    return ids, None
+
+
+def _occ_selected_shape_ids_from_any_world(context, occ, min_count=1, max_count=None):
+    """Like _occ_selected_shape_ids_from_any, but OCC objects are baked into
+    world-space shapes (new registry entries). Returns (ids, cleanup_fn)."""
+    ids = []
+    temp_ids = []
+    for obj in context.selected_objects:
+        if obj.get("hippo_kernel") == "occ":
+            sid = int(obj.get("hippo_occ_shape_id", -1))
+            if sid < 0 or not occ.has_shape(sid):
+                continue
+            mw = obj.matrix_world
+            mat = [
+                mw[0][0], mw[0][1], mw[0][2], mw[0][3],
+                mw[1][0], mw[1][1], mw[1][2], mw[1][3],
+                mw[2][0], mw[2][1], mw[2][2], mw[2][3],
+                mw[3][0], mw[3][1], mw[3][2], mw[3][3]
+            ]
+            ws_id = occ.transform_shape(sid, mat)
+            ids.append(ws_id)
+            temp_ids.append(ws_id)
+        elif obj.type == "CURVE":
+            tid, err = _occ_blender_curve_to_wire(obj, occ)
+            if err:
+                # can't return error here easily; just skip
+                continue
+            ids.append(tid)
+    if len(ids) < min_count:
+        for tid in temp_ids:
+            try:
+                occ.delete_shape(tid)
+            except Exception:
+                pass
+        return None, lambda: None, f"Select at least {min_count} curve or OCC object(s)."
+    if max_count is not None and len(ids) > max_count:
+        for tid in temp_ids:
+            try:
+                occ.delete_shape(tid)
+            except Exception:
+                pass
+        return None, lambda: None, f"Select at most {max_count} object(s)."
+
+    def cleanup():
+        for tid in temp_ids:
+            try:
+                occ.delete_shape(tid)
+            except Exception:
+                pass
+    return ids, cleanup, None
+
+
+# ---------------------------------------------------------------------------
+# OCC Surface / Boolean / Trim command runners
+# ---------------------------------------------------------------------------
+
+def run_occ_loft_command(context):
+    """OCC Loft through selected curves / OCC objects in world-space."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ids, cleanup, err = _occ_selected_shape_ids_from_any_world(context, occ, min_count=2)
+    if err:
+        return False, err
+    try:
+        loft_id = occ.occ_loft(ids, closed=False, solid=False)
+        data = occ.remesh_shape(loft_id, 0.1)
+        cleanup()
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Loft", data,
+                                           location=Vector((0.0, 0.0, 0.0)))
+        obj["hippo_occ_type"] = "loft"
+        return True, f"Created OCC loft (shape_id={loft_id})."
+    except Exception as exc:
+        cleanup()
+        return False, f"OCC Loft failed: {exc}"
+
+
+def run_occ_revolve_command(context):
+    """OCC Revolve selected profile around the active revolve axis (world-space)."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ids, cleanup, err = _occ_selected_shape_ids_from_any_world(context, occ, min_count=1)
+    if err:
+        return False, err
+    profile_id = ids[0]
+    axis = getattr(context.scene, "hippo_revolve_axis", None)
+    if axis is None or not hasattr(axis, "__len__") or len(axis) != 2:
+        origin = (0.0, 0.0, 0.0)
+        direction = (0.0, 0.0, 1.0)
+    else:
+        origin = (axis[0].x, axis[0].y, axis[0].z)
+        direction = (axis[1].x, axis[1].y, axis[1].z)
+    angle = float(getattr(context.scene, "cad_revolve_angle", 360.0))
+    try:
+        rev_id = occ.occ_revolve(profile_id, origin, direction, angle)
+        data = occ.remesh_shape(rev_id, 0.1)
+        cleanup()
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Revolve", data,
+                                           location=Vector((0.0, 0.0, 0.0)))
+        obj["hippo_occ_type"] = "revolve"
+        return True, f"Created OCC revolve (shape_id={rev_id})."
+    except Exception as exc:
+        cleanup()
+        return False, f"OCC Revolve failed: {exc}"
+
+
+def run_occ_sweep1_command(context):
+    """OCC Sweep1: rail = first selected, profile = second selected (world-space)."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ids, cleanup, err = _occ_selected_shape_ids_from_any_world(context, occ, min_count=2)
+    if err:
+        return False, err
+    rail_id = ids[0]
+    profile_id = ids[1]
+    try:
+        sweep_id = occ.occ_sweep1(rail_id, profile_id, solid=False)
+        data = occ.remesh_shape(sweep_id, 0.1)
+        cleanup()
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Sweep1", data,
+                                           location=Vector((0.0, 0.0, 0.0)))
+        obj["hippo_occ_type"] = "sweep1"
+        return True, f"Created OCC Sweep1 (shape_id={sweep_id})."
+    except Exception as exc:
+        cleanup()
+        return False, f"OCC Sweep1 failed: {exc}"
+
+
+def run_occ_planarsrf_command(context):
+    """OCC PlanarSrf from selected closed wire/curve (world-space)."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ids, cleanup, err = _occ_selected_shape_ids_from_any_world(context, occ, min_count=1)
+    if err:
+        return False, err
+    try:
+        face_id = occ.occ_planar_srf(ids[0])
+        data = occ.remesh_shape(face_id, 0.1)
+        cleanup()
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_PlanarSrf", data,
+                                           location=Vector((0.0, 0.0, 0.0)))
+        obj["hippo_occ_type"] = "planarsrf"
+        return True, f"Created OCC PlanarSrf (shape_id={face_id})."
+    except Exception as exc:
+        cleanup()
+        return False, f"OCC PlanarSrf failed: {exc}"
+
+
+def run_occ_edgesrf_command(context):
+    """OCC EdgeSrf from 2-4 selected curves/edges (world-space)."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ids, cleanup, err = _occ_selected_shape_ids_from_any_world(context, occ, min_count=2, max_count=4)
+    if err:
+        return False, err
+    try:
+        face_id = occ.occ_edge_srf(ids, continuity=1)
+        data = occ.remesh_shape(face_id, 0.1)
+        cleanup()
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_EdgeSrf", data,
+                                           location=Vector((0.0, 0.0, 0.0)))
+        obj["hippo_occ_type"] = "edgesrf"
+        return True, f"Created OCC EdgeSrf (shape_id={face_id})."
+    except Exception as exc:
+        cleanup()
+        return False, f"OCC EdgeSrf failed: {exc}"
+
+
+# ---------------------------------------------------------------------------
+# OCC Surface / Boolean / Trim command runners
+# ---------------------------------------------------------------------------
+
+def hippo_occ_boolean_history(context, result_obj, source_objs, operation_name):
+    """Build FreeCAD-style boolean history tree for result_obj.
+
+    Structure:
+      Hippo3D_Booleans (collection, child of scene)
+        └── Boolean_\u003coperation\u003e_\u003cresult_name\u003e (collection)
+              ├── result_obj  (the visible boolean result)
+              └── Sources     (sub-collection, hidden from viewport)
+                    ├── source_obj_1 (hidden)
+                    ├── source_obj_2 (hidden)
+                    └── ...
+
+    Source objects are unlinked from their old collections and linked only
+    into the Sources sub-collection (and hidden).  Their original scene
+    visibility is lost, but they remain in the history tree.
+    """
+    scene = context.scene
+    scene_coll = scene.collection
+
+    # Top-level booleans collection
+    top = bpy.data.collections.get("Hippo3D_Booleans")
+    if top is None:
+        top = bpy.data.collections.new("Hippo3D_Booleans")
+        scene_coll.children.link(top)
+
+    # Operation collection for this specific boolean
+    safe_op = operation_name.replace(" ", "_")
+    coll_name = f"Boolean_{safe_op}_{result_obj.name}"
+    op_coll = bpy.data.collections.new(coll_name)
+    top.children.link(op_coll)
+
+    # Move result object into operation collection
+    for pcoll in result_obj.users_collection:
+        pcoll.objects.unlink(result_obj)
+    op_coll.objects.link(result_obj)
+
+    # Sources sub-collection (hidden)
+    src_coll = bpy.data.collections.new("Sources")
+    op_coll.children.link(src_coll)
+
+    # Store refs on result for traceback
+    result_obj["hippo_occ_history_op"] = operation_name
+    result_obj["hippo_occ_history_sources"] = [o.name for o in source_objs]
+
+    for src in source_objs:
+        for pcoll in list(src.users_collection):
+            pcoll.objects.unlink(src)
+        src_coll.objects.link(src)
+        src.hide_set(True)
+        src.select_set(False)
+
+    # Store shape IDs of sources for future rebuild support
+    source_shape_ids = []
+    for src in source_objs:
+        sid = int(src.get("hippo_occ_shape_id", -1))
+        if sid >= 0:
+            source_shape_ids.append(sid)
+    if source_shape_ids:
+        result_obj["hippo_occ_history_source_shape_ids"] = source_shape_ids
+
+    return op_coll
+
+
+def hippo_occ_history_show_sources(context, obj):
+    """Toggle visibility of source objects for a boolean result.
+    Sources are the original objects that were used to create this boolean."""
+    if not hippo_occ_is_object(obj):
+        return False, "Not an OCC object."
+    src_names = obj.get("hippo_occ_history_sources", [])
+    if not src_names:
+        return False, "No history sources stored for this object."
+    shown = 0
+    for name in src_names:
+        src = bpy.data.objects.get(name)
+        if src is None:
+            continue
+        src.hide_set(not src.hide_get())
+        if not src.hide_get():
+            shown += 1
+    return True, f"Toggled {len(src_names)} source(s); {shown} now visible."
+
+
+def hippo_occ_history_rebuild(context, obj):
+    """Rebuild an OCC boolean object from its stored history sources.
+    Useful when the user wants to recompute after editing a source."""
+    if not hippo_occ_is_object(obj):
+        return False, "Not an OCC object."
+    op = obj.get("hippo_occ_history_op", "")
+    src_names = obj.get("hippo_occ_history_sources", [])
+    if not op or not src_names:
+        return False, "No history stored for this object."
+
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+
+    # Gather source objects and bake them to world space
+    source_objs = []
+    ws_ids = []
+    for name in src_names:
+        src = bpy.data.objects.get(name)
+        if src is None or not hippo_occ_is_object(src):
+            continue
+        sid = int(src.get("hippo_occ_shape_id", -1))
+        if sid < 0 or not occ.has_shape(sid):
+            continue
+        mw = src.matrix_world
+        mat = [
+            mw[0][0], mw[0][1], mw[0][2], mw[0][3],
+            mw[1][0], mw[1][1], mw[1][2], mw[1][3],
+            mw[2][0], mw[2][1], mw[2][2], mw[2][3],
+            mw[3][0], mw[3][1], mw[3][2], mw[3][3]
+        ]
+        ws_id = occ.transform_shape(sid, mat)
+        ws_ids.append(ws_id)
+        source_objs.append(src)
+
+    if len(ws_ids) < 2:
+        for tid in ws_ids:
+            try:
+                occ.delete_shape(tid)
+            except Exception:
+                pass
+        return False, "Not enough valid source objects to rebuild."
+
+    try:
+        if op in {"booleanfuse", "occunion", "fuse", "union"}:
+            new_sid = occ.occ_boolean_fuse(ws_ids)
+        elif op in {"booleancut", "occdifference", "cut", "difference"}:
+            new_sid = occ.occ_boolean_cut(ws_ids[0], ws_ids[1:])
+        elif op in {"booleancommon", "occintersection", "common", "intersection"}:
+            new_sid = occ.occ_boolean_common(ws_ids[0], ws_ids[1])
+        elif op in {"split", "occsplit"}:
+            piece_ids = occ.occ_split(ws_ids[0], ws_ids[1])
+            if not piece_ids:
+                raise RuntimeError("Split returned no pieces.")
+            new_sid = piece_ids[0]
+        else:
+            raise RuntimeError(f"Unknown operation: {op}")
+
+        data = occ.remesh_shape(new_sid, 0.1)
+        for tid in ws_ids:
+            try:
+                occ.delete_shape(tid)
+            except Exception:
+                pass
+
+        old_sid = int(obj.get("hippo_occ_shape_id", -1))
+        hippo_occ_mesh_replace(obj, data)
+        if old_sid >= 0 and occ.has_shape(old_sid):
+            try:
+                occ.delete_shape(old_sid)
+            except Exception:
+                pass
+        obj["hippo_occ_shape_id"] = new_sid
+        return True, f"Rebuilt {op} from {len(source_objs)} source(s)."
+    except Exception as exc:
+        for tid in ws_ids:
+            try:
+                occ.delete_shape(tid)
+            except Exception:
+                pass
+        return False, f"Rebuild failed: {exc}"
+
+
+# ---------------------------------------------------------------------------
+# OCC Surface / Boolean / Trim command runners
+# ---------------------------------------------------------------------------
+
+def run_occ_boolean_fuse_command(context):
+    """OCC Boolean Union (Fuse) on selected objects in world-space."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ws_ids, cleanup, source_objs = _occ_selected_world_shapes(context, occ)
+    if len(ws_ids) < 2:
+        cleanup()
+        return False, "Select at least 2 OCC objects."
+    try:
+        fuse_id = occ.occ_boolean_fuse(ws_ids)
+        data = occ.remesh_shape(fuse_id, 0.1)
+        cleanup()  # delete temporary world-space shapes
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_BooleanFuse", data,
+                                           location=Vector((0.0, 0.0, 0.0)))
+        obj["hippo_occ_type"] = "booleanfuse"
+        hippo_occ_boolean_history(context, obj, source_objs, "fuse")
+        return True, f"Created OCC Boolean Fuse (shape_id={fuse_id})."
+    except Exception as exc:
+        cleanup()
+        return False, f"OCC Boolean Fuse failed: {exc}"
+
+
+def run_occ_boolean_cut_command(context):
+    """OCC Boolean Difference (Cut): base = first selected, tools = rest, in world-space."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ws_ids, cleanup, source_objs = _occ_selected_world_shapes(context, occ)
+    if len(ws_ids) < 2:
+        cleanup()
+        return False, "Select at least 2 OCC objects (base + tool)."
+    base_id = ws_ids[0]
+    tool_ids = ws_ids[1:]
+    try:
+        cut_id = occ.occ_boolean_cut(base_id, tool_ids)
+        data = occ.remesh_shape(cut_id, 0.1)
+        cleanup()
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_BooleanCut", data,
+                                           location=Vector((0.0, 0.0, 0.0)))
+        obj["hippo_occ_type"] = "booleancut"
+        hippo_occ_boolean_history(context, obj, source_objs, "cut")
+        return True, f"Created OCC Boolean Cut (shape_id={cut_id})."
+    except Exception as exc:
+        cleanup()
+        return False, f"OCC Boolean Cut failed: {exc}"
+
+
+def run_occ_boolean_common_command(context):
+    """OCC Boolean Intersection (Common) of two selected objects in world-space."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ws_ids, cleanup, source_objs = _occ_selected_world_shapes(context, occ)
+    if len(ws_ids) < 2:
+        cleanup()
+        return False, "Select exactly 2 OCC objects."
+    try:
+        common_id = occ.occ_boolean_common(ws_ids[0], ws_ids[1])
+        data = occ.remesh_shape(common_id, 0.1)
+        cleanup()
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_BooleanCommon", data,
+                                           location=Vector((0.0, 0.0, 0.0)))
+        obj["hippo_occ_type"] = "booleancommon"
+        hippo_occ_boolean_history(context, obj, source_objs, "common")
+        return True, f"Created OCC Boolean Common (shape_id={common_id})."
+    except Exception as exc:
+        cleanup()
+        return False, f"OCC Boolean Common failed: {exc}"
+
+
+def run_occ_split_command(context):
+    """OCC Split surface by cutter in world-space. Returns the first piece."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ws_ids, cleanup, source_objs = _occ_selected_world_shapes(context, occ)
+    if len(ws_ids) < 2:
+        cleanup()
+        return False, "Select exactly 2 OCC objects (surface + cutter)."
+    try:
+        piece_ids = occ.occ_split(ws_ids[0], ws_ids[1])
+        if not piece_ids:
+            cleanup()
+            return False, "OCC Split returned no pieces."
+        data = occ.remesh_shape(piece_ids[0], 0.1)
+        cleanup()
+        obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Split", data,
+                                           location=Vector((0.0, 0.0, 0.0)))
+        obj["hippo_occ_type"] = "split"
+        hippo_occ_boolean_history(context, obj, source_objs, "split")
+        return True, f"Created OCC Split piece (shape_id={piece_ids[0]})."
+    except Exception as exc:
+        cleanup()
+        return False, f"OCC Split failed: {exc}"
+
+
+def run_occ_export_step_command(context):
+    """Export selected OCC objects to STEP file."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=1)
+    if err:
+        return False, err
+    # filepath comes from the typed command (passed in via cmd)
+    # The caller must pass the full raw text so we parse it here.
+    # This function is called from run_simple_cad_command which has the full text.
+    return False, "Usage: stepout /path/to/file.step"
+
+
+def _run_occ_export_step_command(context, cmd):
+    """Internal: Export selected OCC objects to STEP file."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=1)
+    if err:
+        return False, err
+    parts = cmd.strip().split(maxsplit=1)
+    filepath = parts[1] if len(parts) > 1 else None
+    if not filepath:
+        return False, "Usage: stepout /path/to/file.step"
+    try:
+        if len(ids) == 1:
+            ok, msg = occ.export_step(ids[0], filepath)
+        else:
+            ok, msg = occ.export_step_multi(ids, filepath)
+        return ok, msg
+    except Exception as exc:
+        return False, f"STEP export failed: {exc}"
+
+
+def _run_occ_import_step_command(context, cmd):
+    """Internal: Import shapes from STEP file."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    parts = cmd.strip().split(maxsplit=1)
+    filepath = parts[1] if len(parts) > 1 else None
+    if not filepath:
+        return False, "Usage: stepin /path/to/file.step"
+    try:
+        shape_ids = occ.import_step(filepath)
+        if not shape_ids:
+            return False, "No shapes imported from STEP."
+        imported = []
+        for sid in shape_ids:
+            data = occ.remesh_shape(sid, 0.1)
+            obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_STEP", data)
+            obj["hippo_occ_type"] = "step"
+            imported.append(obj.name)
+        return True, f"Imported {len(imported)} shape(s) from STEP: {filepath}"
+    except Exception as exc:
+        return False, f"STEP import failed: {exc}"
+
+
+def _run_occ_export_3dm_command(context, cmd):
+    """Internal: Export selected OCC objects to .3dm file."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    ids, err = _occ_selected_shape_ids_from_any(context, occ, min_count=1)
+    if err:
+        return False, err
+    parts = cmd.strip().split(maxsplit=1)
+    filepath = parts[1] if len(parts) > 1 else None
+    if not filepath:
+        return False, "Usage: 3dmout /path/to/file.3dm"
+    try:
+        if len(ids) == 1:
+            ok, msg = occ.export_3dm(ids[0], filepath)
+        else:
+            ok, msg = occ.export_3dm_multi(ids, filepath)
+        return ok, msg
+    except Exception as exc:
+        return False, f"3DM export failed: {exc}"
+
+
+def _run_occ_import_3dm_command(context, cmd):
+    """Internal: Import shapes from .3dm file."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+    parts = cmd.strip().split(maxsplit=1)
+    filepath = parts[1] if len(parts) > 1 else None
+    if not filepath:
+        return False, "Usage: 3dmin /path/to/file.3dm"
+    try:
+        result = occ.import_3dm(filepath)
+        if not result:
+            return False, "No shapes imported from 3DM."
+        imported = []
+        for sid, kind in result:
+            data = occ.remesh_shape(sid, 0.1)
+            obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_3DM", data)
+            obj["hippo_occ_type"] = "3dm"
+            imported.append((obj.name, kind))
+        return True, f"Imported {len(imported)} shape(s) from 3DM: {filepath}"
+    except Exception as exc:
+        return False, f"3DM import failed: {exc}"
+
+
+def optimize_mesh_to_grid(context, obj=None, grid_u=None, grid_v=None):
+    """Convert a mesh to a regular quad grid by planar projection and BVH snapping.
+
+    1. Compute a best-fit plane for the mesh using area-weighted normals.
+    2. Project the mesh onto that plane to get a 2D bounding box.
+    3. Sample a regular grid in that 2D domain.
+    4. Snap each grid sample to the nearest point on the original mesh surface.
+    5. Build clean quads from the snapped points.
+
+    This preserves the overall shape because every grid vertex is snapped
+    to the actual mesh surface using a 3D nearest-point query, which works
+    for any orientation (flat, curved, vertical walls, organic, etc.).
+
+    Returns (ok, msg, new_obj).
+    """
+    import math
+    from mathutils import Vector
+    from mathutils.bvhtree import BVHTree
+
+    if obj is None:
+        obj = context.active_object
+    if obj is None or obj.type != "MESH":
+        return False, "Select a mesh object.", None
+
+    mesh = obj.data
+    if mesh is None or len(mesh.polygons) == 0:
+        return False, "Mesh has no faces.", None
+
+    if grid_u is None:
+        grid_u = int(getattr(context.scene, "hippo_grid_res_u", 8))
+    if grid_v is None:
+        grid_v = int(getattr(context.scene, "hippo_grid_res_v", 8))
+    grid_u = max(2, min(grid_u, 256))
+    grid_v = max(2, min(grid_v, 256))
+
+    mw = obj.matrix_world
+
+    # ------------------------------------------------------------------
+    # 1.  Gather local-space vertices and build BVH for snapping
+    # ------------------------------------------------------------------
+    verts_local = [v.co.copy() for v in mesh.vertices]
+    faces = [p.vertices for p in mesh.polygons]
+    bvh = BVHTree.FromPolygons(verts_local, faces)
+
+    # ------------------------------------------------------------------
+    # 2.  Compute best-fit plane (area-weighted normal + centroid)
+    # ------------------------------------------------------------------
+    centroid = Vector((0.0, 0.0, 0.0))
+    for v in verts_local:
+        centroid += v
+    centroid /= len(verts_local)
+
+    normal = Vector((0.0, 0.0, 0.0))
+    total_area = 0.0
+    for poly in mesh.polygons:
+        if len(poly.vertices) < 3:
+            continue
+        vi = list(poly.vertices)
+        v0 = verts_local[vi[0]]
+        for t in range(1, len(vi) - 1):
+            v1 = verts_local[vi[t]]
+            v2 = verts_local[vi[t + 1]]
+            tri_normal = (v1 - v0).cross(v2 - v0)
+            tri_area = tri_normal.length * 0.5
+            if tri_area > 0:
+                normal += tri_normal.normalized() * tri_area
+            total_area += tri_area
+
+    if total_area < 1e-12:
+        return False, "Mesh has zero area; cannot fit plane.", None
+
+    normal = normal.normalized()
+    if normal.length < 1e-9:
+        return False, "Mesh normal is degenerate.", None
+
+    # ------------------------------------------------------------------
+    # 3.  Build orthonormal basis (U, V) in the plane
+    # ------------------------------------------------------------------
+    ref = Vector((1.0, 0.0, 0.0)) if abs(normal.x) < 0.9 else Vector((0.0, 1.0, 0.0))
+    axis_u = ref.cross(normal).normalized()
+    axis_v = normal.cross(axis_u).normalized()
+
+    # ------------------------------------------------------------------
+    # 4.  Project all vertices to 2D (u, v) coordinates in the plane
+    # ------------------------------------------------------------------
+    uv_coords = []
+    for v in verts_local:
+        dv = v - centroid
+        uv_coords.append((dv.dot(axis_u), dv.dot(axis_v)))
+
+    min_u = min(uv[0] for uv in uv_coords)
+    max_u = max(uv[0] for uv in uv_coords)
+    min_v = min(uv[1] for uv in uv_coords)
+    max_v = max(uv[1] for uv in uv_coords)
+
+    # ------------------------------------------------------------------
+    # 5.  Sample a regular grid in UV space, snap each to mesh surface
+    # ------------------------------------------------------------------
+    margin_u = (max_u - min_u) * 0.02 + 1e-6
+    margin_v = (max_v - min_v) * 0.02 + 1e-6
+    min_u -= margin_u
+    max_u += margin_u
+    min_v -= margin_v
+    max_v += margin_v
+
+    max_search = math.sqrt((max_u - min_u) ** 2 + (max_v - min_v) ** 2)
+
+    grid_verts = []
+    for i in range(grid_v + 1):
+        v_t = i / grid_v
+        v_param = min_v + (max_v - min_v) * v_t
+        for j in range(grid_u + 1):
+            u_t = j / grid_u
+            u_param = min_u + (max_u - min_u) * u_t
+
+            # 3D point on the fitted plane in local space
+            plane_pt = centroid + axis_u * u_param + axis_v * v_param
+
+            # Snap to nearest point on actual mesh surface
+            nearest = bvh.find_nearest(plane_pt, max_search)
+            if nearest is not None and len(nearest) > 0 and nearest[0] is not None:
+                grid_verts.append(Vector(nearest[0]))
+            else:
+                grid_verts.append(plane_pt)
+
+    # ------------------------------------------------------------------
+    # 6.  Build quad faces
+    # ------------------------------------------------------------------
+    grid_faces = []
+    for i in range(grid_v):
+        for j in range(grid_u):
+            a = i * (grid_u + 1) + j
+            b = i * (grid_u + 1) + (j + 1)
+            c = (i + 1) * (grid_u + 1) + (j + 1)
+            d = (i + 1) * (grid_u + 1) + j
+            grid_faces.append((a, b, c, d))
+
+    # ------------------------------------------------------------------
+    # 7.  Create object
+    # ------------------------------------------------------------------
+    new_mesh = bpy.data.meshes.new(obj.name + "_Grid")
+    new_mesh.from_pydata(grid_verts, [], grid_faces)
+    new_mesh.update()
+
+    new_obj = bpy.data.objects.new(obj.name + "_Grid", new_mesh)
+    context.collection.objects.link(new_obj)
+    new_obj.matrix_world = mw.copy()
+
+    new_obj["hippo_grid_optimized"] = True
+    new_obj["hippo_grid_res_u"] = grid_u
+    new_obj["hippo_grid_res_v"] = grid_v
+
+    bpy.ops.object.select_all(action="DESELECT")
+    new_obj.select_set(True)
+    context.view_layer.objects.active = new_obj
+
+    return True, f"Created grid mesh {grid_u}x{grid_v} from {obj.name}.", new_obj
+
+
+def _create_nurbs_curve_from_true_nurbs(context, obj, nurbs_data, name_suffix=""):
+    """Build an editable Blender NURBS curve from true OCC NURBS data (poles, knots, degree)."""
+    if not nurbs_data.get("found"):
+        return None
+
+    poles = nurbs_data.get("poles", [])
+    weights = nurbs_data.get("weights", [])
+    knots = nurbs_data.get("knots", [])
+    mults = nurbs_data.get("mults", [])
+    degree = int(nurbs_data.get("degree", 3))
+    periodic = bool(nurbs_data.get("periodic", False))
+
+    if len(poles) < degree + 1:
+        return None
+
+    curve = bpy.data.curves.new(name=obj.name + name_suffix + "_Curve", type="CURVE")
+    curve.dimensions = "3D"
+    spline = curve.splines.new("NURBS")
+    spline.points.add(len(poles) - 1)
+
+    # Blender requires: order_u <= number of points.
+    # Clamp degree so order_u = min(degree+1, len(poles)).
+    effective_degree = max(1, min(degree, len(poles) - 1))
+    order_u = effective_degree + 1
+
+    # Periodic requires at least 2*order_u points; fall back to open clamped if not.
+    if periodic and len(poles) < 2 * order_u:
+        periodic = False
+
+    spline.order_u = order_u
+    spline.use_endpoint_u = not periodic
+    spline.use_cyclic_u = periodic
+
+    # Set control points with weights
+    for i, pt in enumerate(poles):
+        w = weights[i] if i < len(weights) else 1.0
+        spline.points[i].co = (pt[0], pt[1], pt[2], w)
+
+    # NOTE: Blender auto-generates NURBS knot vectors from order_u, endpoint and cyclic flags.
+    # We set the control points and let Blender compute the knots, which yields the correct shape
+    # for the isocurve. Exact OCC knot vectors cannot be directly assigned via Python API.
+
+    new_obj = bpy.data.objects.new(obj.name + name_suffix + "_Nurbs", curve)
+    context.collection.objects.link(new_obj)
+    new_obj.matrix_world = obj.matrix_world.copy()
+    return new_obj
+
+
+def _create_nurbs_curve_from_occ_curve(context, obj, curve_data, name_suffix=""):
+    """Convert an OCC remeshed curve dict into an editable Blender NURBS curve object (legacy dense polyline)."""
+    edges = curve_data.get("edges", [])
+    if not edges:
+        return None
+    polyline = edges[0]
+    if len(polyline) < 2:
+        return None
+
+    curve = bpy.data.curves.new(name=obj.name + name_suffix + "_Curve", type="CURVE")
+    curve.dimensions = "3D"
+    spline = curve.splines.new("NURBS")
+    spline.points.add(len(polyline) - 1)
+    for i, pt in enumerate(polyline):
+        spline.points[i].co = (pt[0], pt[1], pt[2], 1.0)
+    spline.use_endpoint_u = True
+
+    new_obj = bpy.data.objects.new(obj.name + name_suffix + "_Nurbs", curve)
+    context.collection.objects.link(new_obj)
+    new_obj.matrix_world = obj.matrix_world.copy()
+    return new_obj
+
+
+def run_extract_isocurves_command(context):
+    """Extract U and V isocurves from selected OCC surface(s)."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+
+    selected = [obj for obj in context.selected_objects if hippo_occ_is_object(obj)]
+    if not selected:
+        return False, "Select at least one OCC surface."
+
+    count = 0
+    for obj in selected:
+        sid = int(obj.get("hippo_occ_shape_id", -1))
+        if sid < 0 or not occ.has_shape(sid):
+            continue
+        # Extract surface info to determine param range
+        try:
+            info = occ.extract_bsurf_control_points(sid)
+        except Exception:
+            continue
+        u_count = int(info.get("u_count", 0))
+        v_count = int(info.get("v_count", 0))
+        if u_count < 2 or v_count < 2:
+            continue
+        # Get UKnots / VKnots to sample at knot params
+        uknots = list(info.get("uknots", []))
+        vknots = list(info.get("vknots", []))
+        # Fallback: sample evenly
+        if len(uknots) < 2:
+            uknots = [i / (u_count - 1) for i in range(u_count)]
+        if len(vknots) < 2:
+            vknots = [i / (v_count - 1) for i in range(v_count)]
+
+        # Extract U isocurves (fixed U, varying V)
+        for u_param in uknots:
+            try:
+                cid = occ.extract_isocurve_u(sid, float(u_param))
+                nurbs_data = occ.extract_nurbs_curve_data(cid)
+                nurbs_obj = _create_nurbs_curve_from_true_nurbs(
+                    context, obj, nurbs_data, name_suffix=f"_UIso_{u_param:.3f}"
+                )
+                if nurbs_obj:
+                    nurbs_obj["hippo_kernel"] = "nurbs"
+                    nurbs_obj["hippo_shape"] = "isocurve"
+                    nurbs_obj["hippo_occ_parent"] = obj.name
+                    count += 1
+            except Exception:
+                pass
+
+        # Extract V isocurves (fixed V, varying U)
+        for v_param in vknots:
+            try:
+                cid = occ.extract_isocurve_v(sid, float(v_param))
+                nurbs_data = occ.extract_nurbs_curve_data(cid)
+                nurbs_obj = _create_nurbs_curve_from_true_nurbs(
+                    context, obj, nurbs_data, name_suffix=f"_VIso_{v_param:.3f}"
+                )
+                if nurbs_obj:
+                    nurbs_obj["hippo_kernel"] = "nurbs"
+                    nurbs_obj["hippo_shape"] = "isocurve"
+                    nurbs_obj["hippo_occ_parent"] = obj.name
+                    count += 1
+            except Exception:
+                pass
+
+    return True, f"Extracted {count} isocurve(s)."
+
+
+def run_explode_occ_command(context):
+    """Explode selected OCC solids/compounds/shells into individual editable surfaces."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+
+    selected = [obj for obj in context.selected_objects if hippo_occ_is_object(obj)]
+    if not selected:
+        return False, "Select at least one OCC object to explode."
+
+    created = 0
+    for obj in selected:
+        sid = int(obj.get("hippo_occ_shape_id", -1))
+        if sid < 0 or not occ.has_shape(sid):
+            continue
+        try:
+            face_ids = occ.explode_shape_to_faces(sid)
+        except Exception:
+            continue
+        if not face_ids:
+            continue
+        for fid in face_ids:
+            try:
+                data = occ.remesh_shape(fid, 0.1)
+                new_obj = hippo_create_occ_mesh_object(
+                    context, obj.name + "_Face", data
+                )
+                new_obj.matrix_world = obj.matrix_world.copy()
+                new_obj["hippo_occ_type"] = "exploded_face"
+                new_obj["hippo_occ_surface_editable"] = True
+                created += 1
+            except Exception:
+                pass
+
+    return True, f"Exploded into {created} editable surface(s)."
+
+
+def run_occ_to_nurbs_command(context):
+    """Convert selected OCC curve shapes to editable Blender NURBS curves."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+
+    selected = [obj for obj in context.selected_objects if hippo_occ_is_object(obj)]
+    if not selected:
+        return False, "Select at least one OCC object containing curves."
+
+    created = 0
+    for obj in selected:
+        sid = int(obj.get("hippo_occ_shape_id", -1))
+        if sid < 0 or not occ.has_shape(sid):
+            continue
+        # Try true NURBS first
+        try:
+            nurbs_data = occ.extract_nurbs_curve_data(sid)
+        except Exception:
+            nurbs_data = {"found": False}
+        if nurbs_data.get("found"):
+            nurbs_obj = _create_nurbs_curve_from_true_nurbs(context, obj, nurbs_data, name_suffix="_Nurbs")
+        else:
+            # Fallback: dense polyline
+            try:
+                data = occ.remesh_curve(sid, 0.05)
+            except Exception:
+                continue
+            nurbs_obj = _create_nurbs_curve_from_occ_curve(context, obj, data, name_suffix="_Nurbs")
+        if nurbs_obj:
+            nurbs_obj["hippo_kernel"] = "nurbs"
+            nurbs_obj["hippo_shape"] = "nurbs_curve"
+            nurbs_obj["hippo_occ_parent"] = obj.name
+            created += 1
+
+    return True, f"Converted {created} OCC curve(s) to NURBS."
+
+
+def run_optimize_to_grid_command(context):
+    obj = context.active_object
+    ok, msg, new_obj = optimize_mesh_to_grid(context, obj)
+    return ok, msg
+
+
+def run_occ_to_mesh_command(context):
+    """Convert selected OCC objects to standard Blender MESH objects."""
+    selected = [obj for obj in context.selected_objects if obj.get("hippo_kernel") == "occ"]
+    if not selected:
+        return False, "Select at least one OCC object to convert to mesh."
+
+    converted = 0
+    for obj in selected:
+        mesh = obj.data
+        if mesh is None:
+            continue
+        # Make mesh single-user and remove custom properties that lock it
+        if mesh.users > 1:
+            obj.data = mesh.copy()
+            mesh = obj.data
+
+        # Remove OCC-specific custom properties
+        for key in list(obj.keys()):
+            if key.startswith("hippo_occ_"):
+                del obj[key]
+
+        # Remove the OCC material
+        while obj.data.materials:
+            obj.data.materials.pop(index=0)
+
+        obj["hippo_kernel"] = "mesh"
+        obj.show_wire = False
+        converted += 1
+
+    return True, f"Converted {converted} OCC object(s) to mesh."
+
+
+def _order_mesh_vertices_into_grid(mesh, rows, cols):
+    """Attempt to order mesh vertices into a (rows+1) x (cols+1) grid.
+
+    Returns a flat list of vertex indices in row-major order, or None.
+    """
+    import math
+    from collections import defaultdict
+
+    verts_local = [v.co.copy() for v in mesh.vertices]
+    adj = defaultdict(set)
+    for poly in mesh.polygons:
+        v = list(poly.vertices)
+        n = len(v)
+        for i in range(n):
+            a = v[i]
+            b = v[(i + 1) % n]
+            adj[a].add(b)
+            adj[b].add(a)
+
+    # Find a corner: vertex with degree 2
+    corner_candidates = [v for v in range(len(mesh.vertices)) if len(adj[v]) == 2]
+    if len(corner_candidates) < 1:
+        return None
+
+    start = corner_candidates[0]
+    neighbors = list(adj[start])
+    if len(neighbors) != 2:
+        return None
+
+    dir_a = neighbors[0]
+    dir_b = neighbors[1]
+
+    def walk_line(begin, direction):
+        path = [begin]
+        current = direction
+        prev = begin
+        while current != begin:
+            path.append(current)
+            candidates = [n for n in adj[current] if n != prev]
+            if not candidates:
+                break
+            if len(candidates) == 1:
+                prev, current = current, candidates[0]
+            else:
+                # Try to continue straight
+                if len(adj[current]) == 3:
+                    non_corner = [n for n in candidates if len(adj[n]) != 2]
+                    if len(non_corner) == 1:
+                        prev, current = current, non_corner[0]
+                    else:
+                        break
+                elif len(adj[current]) == 4:
+                    vec_prev = (verts_local[prev][0] - verts_local[current][0],
+                                verts_local[prev][1] - verts_local[current][1],
+                                verts_local[prev][2] - verts_local[current][2])
+                    best = None
+                    best_dot = -2.0
+                    for cand in candidates:
+                        vec_cand = (verts_local[cand][0] - verts_local[current][0],
+                                   verts_local[cand][1] - verts_local[current][1],
+                                   verts_local[cand][2] - verts_local[current][2])
+                        lp = math.sqrt(vec_prev[0]**2 + vec_prev[1]**2 + vec_prev[2]**2)
+                        lc = math.sqrt(vec_cand[0]**2 + vec_cand[1]**2 + vec_cand[2]**2)
+                        if lp < 1e-9 or lc < 1e-9:
+                            continue
+                        dot = (vec_prev[0]*vec_cand[0] + vec_prev[1]*vec_cand[1] + vec_prev[2]*vec_cand[2]) / (lp*lc)
+                        if dot > best_dot:
+                            best_dot = dot
+                            best = cand
+                    if best is None:
+                        break
+                    prev, current = current, best
+                else:
+                    break
+            if len(path) > len(mesh.vertices):
+                return None
+        return path
+
+    row_path = walk_line(start, dir_a)
+    if len(row_path) != cols + 1:
+        row_path = walk_line(start, dir_b)
+        if len(row_path) != cols + 1:
+            return None
+        col_dir = dir_a
+    else:
+        col_dir = dir_b
+
+    grid = []
+    for i, row_start in enumerate(row_path):
+        if i == 0:
+            col_path = walk_line(row_start, col_dir)
+        else:
+            prev_row_start = row_path[i - 1]
+            candidates = [n for n in adj[row_start] if n != prev_row_start]
+            if i + 1 < len(row_path):
+                next_row_start = row_path[i + 1]
+                candidates = [n for n in candidates if n != next_row_start]
+            if len(candidates) != 1:
+                return None
+            col_path = walk_line(row_start, candidates[0])
+        if len(col_path) != rows + 1:
+            return None
+        grid.extend(col_path)
+
+    return grid
+
+
+def _try_fit_bspline_surface_from_mesh(occ, mesh, verts_local, mw):
+    """Detect a clean quad-grid topology and fit a B-spline surface.
+
+    Returns a new OCC shape_id, or None if the mesh is not a clean grid.
+    """
+    import math
+    from collections import defaultdict
+
+    polys = mesh.polygons
+    n_polys = len(polys)
+    if n_polys == 0:
+        return None
+
+    # All faces must be quads for a clean grid
+    for poly in polys:
+        if len(poly.vertices) != 4:
+            return None
+
+    edge_faces = defaultdict(list)
+    for fi, poly in enumerate(polys):
+        v = list(poly.vertices)
+        n = len(v)
+        for i in range(n):
+            a = v[i]
+            b = v[(i + 1) % n]
+            edge = tuple(sorted((a, b)))
+            edge_faces[edge].append(fi)
+
+    if any(len(fs) != 1 and len(fs) != 2 for fs in edge_faces.values()):
+        return None
+
+    total_verts = len(verts_local)
+    best_rows = None
+    best_cols = None
+    best_err = float('inf')
+    for rows in range(1, n_polys + 1):
+        if n_polys % rows == 0:
+            cols = n_polys // rows
+            expected_verts = (rows + 1) * (cols + 1)
+            err = abs(expected_verts - total_verts)
+            if err < best_err:
+                best_err = err
+                best_rows = rows
+                best_cols = cols
+
+    if best_rows is None or best_err != 0:
+        return None
+
+    rows = best_rows
+    cols = best_cols
+
+    grid = _order_mesh_vertices_into_grid(mesh, rows, cols)
+    if grid is None:
+        return None
+
+    # Transform grid points to world space
+    grid_world = []
+    for vi in grid:
+        p = mw @ verts_local[vi]
+        grid_world.append([p.x, p.y, p.z])
+
+    try:
+        sid = occ.make_bspline_surface_from_grid(rows + 1, cols + 1, grid_world)
+        return sid
+    except Exception:
+        return None
+
+
+def run_mesh_to_occ_command(context):
+    """Convert selected Blender MESH objects to OCC shapes.
+
+    If the mesh has a clean quad-grid topology, fit an editable B-spline surface
+    so control points can be manipulated afterwards (like loft / revolve / sweep).
+    Otherwise fall back to a plain sewn mesh shape.
+    """
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+
+    meshes = [obj for obj in context.selected_objects if obj.type == "MESH"]
+    if not meshes:
+        return False, "Select at least one mesh object to convert to OCC."
+
+    created = 0
+    for obj in meshes:
+        mesh = obj.data
+        if mesh is None:
+            continue
+
+        mw = obj.matrix_world
+        verts_local = [v.co.copy() for v in mesh.vertices]
+
+        # ---- Try grid-surface detection first ----
+        sid = _try_fit_bspline_surface_from_mesh(occ, mesh, verts_local, mw)
+        if sid is not None and sid >= 0:
+            data = occ.remesh_shape(sid, 0.1)
+            new_obj = hippo_create_occ_mesh_object(context, obj.name + "_OCC", data)
+            new_obj.matrix_world = Matrix.Identity(4)
+            new_obj["hippo_occ_type"] = "mesh_to_occ_surface"
+            new_obj["hippo_occ_surface_editable"] = True
+            created += 1
+            continue
+
+        # ---- Fallback: plain mesh-to-shape sewing ----
+        vertices = []
+        for v in mesh.vertices:
+            p = mw @ v.co
+            vertices.append([p.x, p.y, p.z])
+
+        faces = []
+        for poly in mesh.polygons:
+            face = [v for v in poly.vertices]
+            if len(face) >= 3:
+                faces.append(face)
+
+        if not faces:
+            continue
+
+        try:
+            sid = occ.make_shape_from_mesh(vertices, faces)
+            if sid < 0:
+                continue
+            data = occ.remesh_shape(sid, 0.1)
+            new_obj = hippo_create_occ_mesh_object(context, obj.name + "_OCC", data)
+            new_obj.matrix_world = Matrix.Identity(4)
+            new_obj["hippo_occ_type"] = "mesh_to_occ"
+            created += 1
+        except Exception as exc:
+            continue
+
+    return True, f"Created {created} OCC object(s) from mesh."
+
+
+# ---------------------------------------------------------------------------
+# OCC Surface / Boolean / Trim operator classes
+# ---------------------------------------------------------------------------
+
+class HIPPO_OT_OCCLoft(Operator):
+    bl_idname = "cad.occ_loft"
+    bl_label = "OCC Loft"
+    bl_description = "Loft through selected curves using OCC BRepOffsetAPI_ThruSections"
+
+    def execute(self, context):
+        ok, msg = run_occ_loft_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
+
+
+class HIPPO_OT_OCCRevolve(Operator):
+    bl_idname = "cad.occ_revolve"
+    bl_label = "OCC Revolve"
+    bl_description = "Revolve selected profile around the active revolve axis"
+
+    def execute(self, context):
+        ok, msg = run_occ_revolve_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
+
+
+class HIPPO_OT_OCCSweep1(Operator):
+    bl_idname = "cad.occ_sweep1"
+    bl_label = "OCC Sweep1"
+    bl_description = "Sweep profile along first selected rail (single rail)"
+
+    def execute(self, context):
+        ok, msg = run_occ_sweep1_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
+
+
+class HIPPO_OT_OCCPlanarSrf(Operator):
+    bl_idname = "cad.occ_planar_srf"
+    bl_label = "OCC PlanarSrf"
+    bl_description = "Create a planar surface from a closed planar wire"
+
+    def execute(self, context):
+        ok, msg = run_occ_planarsrf_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
+
+
+class HIPPO_OT_OCCEdgeSrf(Operator):
+    bl_idname = "cad.occ_edge_srf"
+    bl_label = "OCC EdgeSrf"
+    bl_description = "Create a filling surface from 2-4 boundary curves"
+
+    def execute(self, context):
+        ok, msg = run_occ_edgesrf_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
+
+
+class HIPPO_OT_OCCBooleanFuse(Operator):
+    bl_idname = "cad.occ_boolean_fuse"
+    bl_label = "OCC Boolean Union"
+    bl_description = "Boolean union (fuse) of selected OCC solids/surfaces"
+
+    def execute(self, context):
+        ok, msg = run_occ_boolean_fuse_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
+
+
+class HIPPO_OT_OCCBooleanCut(Operator):
+    bl_idname = "cad.occ_boolean_cut"
+    bl_label = "OCC Boolean Difference"
+    bl_description = "Boolean difference (cut) of base minus tools"
+
+    def execute(self, context):
+        ok, msg = run_occ_boolean_cut_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
+
+
+class HIPPO_OT_OCCBooleanCommon(Operator):
+    bl_idname = "cad.occ_boolean_common"
+    bl_label = "OCC Boolean Intersection"
+    bl_description = "Boolean intersection (common) of two shapes"
+
+    def execute(self, context):
+        ok, msg = run_occ_boolean_common_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
+
+
+class HIPPO_OT_OCCSplit(Operator):
+    bl_idname = "cad.occ_split"
+    bl_label = "OCC Split"
+    bl_description = "Split a surface by a cutter shape"
+
+    def execute(self, context):
+        ok, msg = run_occ_split_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
+
+
+# ---------------------------------------------------------------------------
+# Import / Export operators (STEP + 3DM)
+# ---------------------------------------------------------------------------
+
+class HIPPO_OT_ExportSTEP(Operator):
+    bl_idname = "hippo.export_step"
+    bl_label = "Export STEP"
+    bl_description = "Export selected OCC shapes to a STEP file"
+    bl_options = {"REGISTER", "UNDO"}
+
+    filepath: StringProperty(subtype="FILE_PATH")
+    filename_ext = ".step"
+    filter_glob: StringProperty(default="*.step;*.stp", options={"HIDDEN"})
+
+    def execute(self, context):
+        if not self.filepath:
+            self.report({"WARNING"}, "No file selected")
+            return {"CANCELLED"}
+        ok, msg = _run_occ_export_step_command(context, f"stepout {self.filepath}")
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+
+class HIPPO_OT_ImportSTEP(Operator):
+    bl_idname = "hippo.import_step"
+    bl_label = "Import STEP"
+    bl_description = "Import shapes from a STEP file"
+    bl_options = {"REGISTER", "UNDO"}
+
+    filepath: StringProperty(subtype="FILE_PATH")
+    filename_ext = ".step"
+    filter_glob: StringProperty(default="*.step;*.stp", options={"HIDDEN"})
+
+    def execute(self, context):
+        if not self.filepath:
+            self.report({"WARNING"}, "No file selected")
+            return {"CANCELLED"}
+        ok, msg = _run_occ_import_step_command(context, f"stepin {self.filepath}")
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+
+class HIPPO_OT_Export3DM(Operator):
+    bl_idname = "hippo.export_3dm"
+    bl_label = "Export 3DM"
+    bl_description = "Export selected OCC shapes to a Rhino .3dm file"
+    bl_options = {"REGISTER", "UNDO"}
+
+    filepath: StringProperty(subtype="FILE_PATH")
+    filename_ext = ".3dm"
+    filter_glob: StringProperty(default="*.3dm", options={"HIDDEN"})
+
+    def execute(self, context):
+        if not self.filepath:
+            self.report({"WARNING"}, "No file selected")
+            return {"CANCELLED"}
+        ok, msg = _run_occ_export_3dm_command(context, f"3dmout {self.filepath}")
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+
+class HIPPO_OT_Import3DM(Operator):
+    bl_idname = "hippo.import_3dm"
+    bl_label = "Import 3DM"
+    bl_description = "Import shapes from a Rhino .3dm file"
+    bl_options = {"REGISTER", "UNDO"}
+
+    filepath: StringProperty(subtype="FILE_PATH")
+    filename_ext = ".3dm"
+    filter_glob: StringProperty(default="*.3dm", options={"HIDDEN"})
+
+    def execute(self, context):
+        if not self.filepath:
+            self.report({"WARNING"}, "No file selected")
+            return {"CANCELLED"}
+        ok, msg = _run_occ_import_3dm_command(context, f"3dmin {self.filepath}")
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+
+# -----------------------------------------------------------------------------
+# OCC display-cache edit guard
+# -----------------------------------------------------------------------------
+
+def hippo_is_locked_occ_display_object(obj):
+    return (
+        obj is not None
+        and obj.type == "MESH"
+        and obj.get("hippo_kernel") == "occ"
+        and bool(obj.get("hippo_occ_edit_locked", True))
+    )
+
+
+def hippo_guard_occ_edit_mode(scene=None):
+    context = bpy.context
+    obj = context.active_object
+
+    if not hippo_is_locked_occ_display_object(obj):
+        return
+
+    if obj.mode != "EDIT":
+        return
+
+    try:
+        bpy.ops.object.mode_set(mode="OBJECT")
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
+    except Exception:
+        pass
+
+    try:
+        hippo_occ_toggle_points(context, obj)
+    except Exception:
+        pass
+
+
+def hippo_occ_edit_guard_timer():
+    hippo_guard_occ_edit_mode()
+    return 0.25
+
+
+# -----------------------------------------------------------------------------
+# OCC PointsOn / PointsOff using selectable Empty handles
+# -----------------------------------------------------------------------------
+
+def hippo_occ_is_object(obj):
+    return obj is not None and obj.get("hippo_kernel") == "occ"
+
+
+def hippo_occ_is_handle(obj):
+    return obj is not None and obj.get("hippo_occ_handle") is True
+
+
+def hippo_occ_parent_from_handle(handle):
+    if not hippo_occ_is_handle(handle):
+        return None
+    return bpy.data.objects.get(handle.get("hippo_occ_parent", ""))
+
+
+def hippo_occ_active_or_parent(context):
+    obj = context.active_object
+    if hippo_occ_is_object(obj):
+        return obj
+    if hippo_occ_is_handle(obj):
+        return hippo_occ_parent_from_handle(obj)
+    return None
+
+
+def hippo_occ_handle_collection(context):
+    coll = bpy.data.collections.get("Hippo3D_OCC_Handles")
+    if coll is None:
+        coll = bpy.data.collections.new("Hippo3D_OCC_Handles")
+        context.scene.collection.children.link(coll)
+    return coll
+
+
+def hippo_occ_loc_key(location):
+    return f"{location.x:.9f},{location.y:.9f},{location.z:.9f}"
+
+
+def hippo_occ_make_empty_handle(context, parent_obj, handle_type, label, location):
+    handle = bpy.data.objects.new(f"Hippo3D_OCC_Handle_{parent_obj.name}_{handle_type}", None)
+    handle.empty_display_type = "SPHERE"
+    handle.empty_display_size = 0.35
+    handle.location = location.copy()
+    handle.show_in_front = True
+    handle.hide_select = False
+    handle["hippo_occ_handle"] = True
+    handle["hippo_occ_parent"] = parent_obj.name
+    handle["hippo_occ_handle_type"] = handle_type
+    handle["hippo_occ_handle_label"] = label
+    handle["hippo_occ_last_location"] = hippo_occ_loc_key(handle.location)
+    hippo_occ_handle_collection(context).objects.link(handle)
+    return handle
+
+
+def hippo_occ_remove_handles_for_object(obj):
+    if obj is None:
+        return
+    for handle in list(bpy.data.objects):
+        if hippo_occ_is_handle(handle) and handle.get("hippo_occ_parent") == obj.name:
+            bpy.data.objects.remove(handle, do_unlink=True)
+
+
+def hippo_occ_remove_all_handles():
+    for handle in list(bpy.data.objects):
+        if hippo_occ_is_handle(handle):
+            bpy.data.objects.remove(handle, do_unlink=True)
+
+
+def hippo_occ_surface_cp_in_world(obj, info):
+    """Convert OCC surface CPs (object-local) to world-space handles."""
+    ws = [obj.matrix_world @ Vector(p) for p in info["poles"]]
+    return ws, info["u_count"], info["v_count"]
+
+
+def hippo_occ_handle_specs(obj):
+    if not hippo_occ_is_object(obj):
+        return []
+    origin = obj.location.copy()
+    occ_type = obj.get("hippo_occ_type", "")
+    specs = []
+
+    def add(kind, label, point):
+        specs.append((kind, label, point.copy()))
+
+    if occ_type in {"loft", "revolve", "sweep1", "planarsrf", "edgesrf", "step", "3dm", "mesh_to_occ_surface", "exploded_face"}:
+        sid = int(obj.get("hippo_occ_shape_id", -1))
+        if sid >= 0:
+            try:
+                occ = hippo_load_occ_core()
+                if occ.has_shape(sid):
+                    info = occ.extract_bsurf_control_points(sid)
+                    ws, ucnt, vcnt = hippo_occ_surface_cp_in_world(obj, info)
+                    for idx, wp in enumerate(ws):
+                        u = idx // vcnt
+                        v = idx % vcnt
+                        add("cp_{}_{}".format(u, v), "CP {}-{}".format(u, v), wp)
+            except Exception:
+                pass
+        return specs
+
+    if occ_type == "box":
+        w = float(obj.get("hippo_occ_width", 10.0))
+        d = float(obj.get("hippo_occ_depth", 10.0))
+        h = float(obj.get("hippo_occ_height", 10.0))
+        add("origin", "Origin", origin)
+        add("width", "Width", origin + Vector((w, 0.0, 0.0)))
+        add("depth", "Depth", origin + Vector((0.0, d, 0.0)))
+        add("height", "Height", origin + Vector((0.0, 0.0, h)))
+    elif occ_type == "sphere":
+        r = float(obj.get("hippo_occ_radius", 5.0))
+        add("center", "Center", origin)
+        add("radius", "Radius", origin + Vector((r, 0.0, 0.0)))
+    elif occ_type == "cylinder":
+        r = float(obj.get("hippo_occ_radius", 5.0))
+        h = float(obj.get("hippo_occ_height", 10.0))
+        add("base", "Base", origin)
+        add("radius", "Radius", origin + Vector((r, 0.0, 0.0)))
+        add("height", "Height", origin + Vector((0.0, 0.0, h)))
+    elif occ_type == "cone":
+        r1 = float(obj.get("hippo_occ_radius1", 5.0))
+        r2 = float(obj.get("hippo_occ_radius2", 0.0))
+        h = float(obj.get("hippo_occ_height", 10.0))
+        add("base", "Base", origin)
+        add("radius1", "Radius 1", origin + Vector((r1, 0.0, 0.0)))
+        add("height", "Height", origin + Vector((0.0, 0.0, h)))
+        add("radius2", "Radius 2", origin + Vector((r2, 0.0, h)))
+    elif occ_type == "torus":
+        major = float(obj.get("hippo_occ_major_radius", 5.0))
+        minor = float(obj.get("hippo_occ_minor_radius", 1.25))
+        add("center", "Center", origin)
+        add("major_radius", "Major", origin + Vector((major, 0.0, 0.0)))
+        add("minor_radius", "Minor", origin + Vector((major + minor, 0.0, 0.0)))
+    return specs
+
+
+def hippo_occ_points_are_on(obj):
+    if not hippo_occ_is_object(obj):
+        return False
+    return any(hippo_occ_is_handle(h) and h.get("hippo_occ_parent") == obj.name for h in bpy.data.objects)
+
+
+def hippo_occ_points_on(context, obj=None):
+    obj = obj or hippo_occ_active_or_parent(context)
+    if not hippo_occ_is_object(obj):
+        return False, "Select an OCC object first."
+
+    occ_type = obj.get("hippo_occ_type", "")
+
+    # Surfaces (loft, revolve, sweep, imported): show surface control points
+    if occ_type in {"loft", "revolve", "sweep1", "planarsrf", "edgesrf", "step", "3dm", "mesh_to_occ_surface", "exploded_face"}:
+        specs = hippo_occ_handle_specs(obj)
+        if not specs:
+            return False, f"No control points found for OCC type: {occ_type}"
+        hippo_occ_remove_handles_for_object(obj)
+        handles = []
+        for kind, label, point in specs:
+            handle = hippo_occ_make_empty_handle(context, obj, kind, label, point)
+            if kind.startswith("cp_"):
+                parts = kind.split("_")
+                if len(parts) == 3:
+                    handle["hippo_occ_cp_u"] = int(parts[1])
+                    handle["hippo_occ_cp_v"] = int(parts[2])
+            handles.append(handle)
+        obj["hippo_occ_points_on"] = True
+        obj["hippo_occ_edit_mode"] = True
+        obj["hippo_occ_cp_count"] = len(handles)
+        bpy.ops.object.select_all(action="DESELECT")
+        obj.select_set(True)
+        for handle in handles:
+            handle.select_set(True)
+        context.view_layer.objects.active = handles[0] if handles else obj
+        return True, f"OCC {occ_type} surface control points enabled ({len(handles)} handles)."
+
+    # Primitive solids: show parametric handles
+    specs = hippo_occ_handle_specs(obj)
+    if not specs:
+        return False, f"PointsOn is not implemented for OCC type: {occ_type}"
+    hippo_occ_remove_handles_for_object(obj)
+    handles = [hippo_occ_make_empty_handle(context, obj, kind, label, point) for kind, label, point in specs]
+    obj["hippo_occ_points_on"] = True
+    obj["hippo_occ_edit_mode"] = True
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    for handle in handles:
+        handle.select_set(True)
+    context.view_layer.objects.active = handles[0] if handles else obj
+    return True, "OCC control points enabled."
+
+
+def hippo_occ_points_off(context, obj=None):
+    obj = obj or hippo_occ_active_or_parent(context)
+    if hippo_occ_is_object(obj):
+        hippo_occ_remove_handles_for_object(obj)
+        obj["hippo_occ_points_on"] = False
+        obj["hippo_occ_edit_mode"] = False
+        bpy.ops.object.select_all(action="DESELECT")
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
+        return True, "OCC control points disabled."
+    hippo_occ_remove_all_handles()
+    return True, "All OCC control points disabled."
+
+
+def hippo_occ_toggle_points(context, obj=None):
+    obj = obj or hippo_occ_active_or_parent(context)
+    if not hippo_occ_is_object(obj):
+        return None, ""
+    if hippo_occ_points_are_on(obj):
+        return hippo_occ_points_off(context, obj)
+    return hippo_occ_points_on(context, obj)
+
+
+def hippo_occ_mesh_replace(obj, data):
+    if obj is None or obj.type != "MESH":
+        return
+    # Make mesh single-user so linked duplicates don't share geometry updates
+    if obj.data.users > 1:
+        obj.data = obj.data.copy()
+    mesh = obj.data
+    mesh.clear_geometry()
+    mesh.from_pydata(data.get("vertices", []), [], data.get("faces", []))
+    for polygon in mesh.polygons:
+        polygon.use_smooth = True
+    mesh.update()
+    obj["hippo_occ_shape_id"] = int(data.get("shape_id", obj.get("hippo_occ_shape_id", -1)))
+    try:
+        obj["hippo_occ_edges_json"] = hippo_occ_edges_json_from_data(data)
+    except Exception:
+        pass
+
+
+def hippo_occ_move_other_handles(parent_obj, moved_handle, delta):
+    for other in bpy.data.objects:
+        if hippo_occ_is_handle(other) and other.get("hippo_occ_parent") == parent_obj.name and other != moved_handle:
+            other.location += delta
+            other["hippo_occ_last_location"] = hippo_occ_loc_key(other.location)
+
+
+def hippo_occ_rebuild_from_handle(context, parent_obj, handle):
+    if not hippo_occ_is_object(parent_obj) or not hippo_occ_is_handle(handle):
+        return False
+    try:
+        occ = hippo_load_occ_core()
+    except Exception:
+        return False
+
+    occ_type = parent_obj.get("hippo_occ_type", "")
+    handle_type = handle.get("hippo_occ_handle_type", "")
+    p = handle.location.copy()
+    origin = parent_obj.location.copy()
+
+    try:
+        if occ_type == "box":
+            w = float(parent_obj.get("hippo_occ_width", 10.0))
+            d = float(parent_obj.get("hippo_occ_depth", 10.0))
+            h = float(parent_obj.get("hippo_occ_height", 10.0))
+            if handle_type == "origin":
+                delta = p - origin
+                parent_obj.location = p
+                hippo_occ_move_other_handles(parent_obj, handle, delta)
+                return True
+            if handle_type == "width":
+                w = max(0.001, abs((p - origin).x))
+            elif handle_type == "depth":
+                d = max(0.001, abs((p - origin).y))
+            elif handle_type == "height":
+                h = max(0.001, abs((p - origin).z))
+            data = occ.make_box_mesh(w, d, h)
+            hippo_occ_mesh_replace(parent_obj, data)
+            parent_obj["hippo_occ_width"], parent_obj["hippo_occ_depth"], parent_obj["hippo_occ_height"] = w, d, h
+        elif occ_type == "sphere":
+            r = float(parent_obj.get("hippo_occ_radius", 5.0))
+            if handle_type == "center":
+                delta = p - origin
+                parent_obj.location = p
+                hippo_occ_move_other_handles(parent_obj, handle, delta)
+                return True
+            if handle_type == "radius":
+                r = max(0.001, (p - origin).length)
+            data = occ.make_sphere_mesh(r)
+            hippo_occ_mesh_replace(parent_obj, data)
+            parent_obj["hippo_occ_radius"] = r
+        elif occ_type == "cylinder":
+            r = float(parent_obj.get("hippo_occ_radius", 5.0))
+            h = float(parent_obj.get("hippo_occ_height", 10.0))
+            if handle_type == "base":
+                delta = p - origin
+                parent_obj.location = p
+                hippo_occ_move_other_handles(parent_obj, handle, delta)
+                return True
+            if handle_type == "radius":
+                r = max(0.001, (p - origin).length)
+            elif handle_type == "height":
+                h = max(0.001, abs((p - origin).z))
+            data = occ.make_cylinder_mesh(r, h)
+            hippo_occ_mesh_replace(parent_obj, data)
+            parent_obj["hippo_occ_radius"], parent_obj["hippo_occ_height"] = r, h
+        elif occ_type == "cone":
+            r1 = float(parent_obj.get("hippo_occ_radius1", 5.0))
+            r2 = float(parent_obj.get("hippo_occ_radius2", 0.0))
+            h = float(parent_obj.get("hippo_occ_height", 10.0))
+            if handle_type == "base":
+                delta = p - origin
+                parent_obj.location = p
+                hippo_occ_move_other_handles(parent_obj, handle, delta)
+                return True
+            if handle_type == "radius1":
+                r1 = max(0.001, Vector((p.x - origin.x, p.y - origin.y, 0.0)).length)
+            elif handle_type == "height":
+                h = max(0.001, abs((p - origin).z))
+            elif handle_type == "radius2":
+                top = origin + Vector((0.0, 0.0, h))
+                r2 = max(0.0, Vector((p.x - top.x, p.y - top.y, 0.0)).length)
+            data = occ.make_cone_mesh(r1, r2, h)
+            hippo_occ_mesh_replace(parent_obj, data)
+            parent_obj["hippo_occ_radius1"], parent_obj["hippo_occ_radius2"], parent_obj["hippo_occ_height"] = r1, r2, h
+        elif occ_type == "torus":
+            major = float(parent_obj.get("hippo_occ_major_radius", 5.0))
+            minor = float(parent_obj.get("hippo_occ_minor_radius", 1.25))
+            if handle_type == "center":
+                delta = p - origin
+                parent_obj.location = p
+                hippo_occ_move_other_handles(parent_obj, handle, delta)
+                return True
+            if handle_type == "major_radius":
+                major = max(0.001, (p - origin).length)
+            elif handle_type == "minor_radius":
+                minor = max(0.001, abs((p - origin).length - major))
+            data = occ.make_torus_mesh(major, minor)
+            hippo_occ_mesh_replace(parent_obj, data)
+            parent_obj["hippo_occ_major_radius"], parent_obj["hippo_occ_minor_radius"] = major, minor
+        else:
+            return False
+    except Exception:
+        return False
+    return True
+
+
+def hippo_occ_points_timer():
+    surface_parents = set()
+    for handle in list(bpy.data.objects):
+        if not hippo_occ_is_handle(handle):
+            continue
+        current = hippo_occ_loc_key(handle.location)
+        previous = handle.get("hippo_occ_last_location", "")
+        if current == previous:
+            continue
+        handle["hippo_occ_last_location"] = current
+        parent = hippo_occ_parent_from_handle(handle)
+        if parent is None:
+            continue
+        occ_type = parent.get("hippo_occ_type", "")
+        if occ_type in {"loft", "revolve", "sweep1", "planarsrf", "edgesrf", "step", "3dm", "mesh_to_occ_surface", "exploded_face"}:
+            surface_parents.add(parent.name)
+        else:
+            hippo_occ_rebuild_from_handle(bpy.context, parent, handle)
+
+    for pname in surface_parents:
+        parent = bpy.data.objects.get(pname)
+        if parent:
+            hippo_occ_rebuild_surface_cp(parent)
+            for h in bpy.data.objects:
+                if hippo_occ_is_handle(h) and h.get("hippo_occ_parent") == pname:
+                    h["hippo_occ_last_location"] = hippo_occ_loc_key(h.location)
+    return 0.12
+
+
+def hippo_occ_rebuild_surface_cp(parent_obj):
+    """Rebuild an OCC surface from its surface CP handles.
+    Handle locations are in world-space; we inverse-transform them back
+    into the surface's local coordinate system before passing poles to OCC."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception:
+        return False
+
+    old_sid = int(parent_obj.get("hippo_occ_shape_id", -1))
+    if old_sid < 0 or not occ.has_shape(old_sid):
+        return False
+
+    handles = [h for h in bpy.data.objects
+               if hippo_occ_is_handle(h) and h.get("hippo_occ_parent") == parent_obj.name]
+    n_expected = parent_obj.get("hippo_occ_cp_count", 0)
+    if n_expected <= 0 or len(handles) != n_expected:
+        return False
+
+    handles.sort(key=lambda h: (h.get("hippo_occ_cp_u", -1), h.get("hippo_occ_cp_v", -1)))
+
+    try:
+        inv = parent_obj.matrix_world.inverted()
+    except Exception:
+        return False
+
+    new_poles = []
+    for h in handles:
+        loc = inv @ h.location
+        new_poles.append((loc.x, loc.y, loc.z))
+
+    try:
+        new_sid = occ.set_bsurf_control_points(old_sid, new_poles)
+        data = occ.remesh_shape(new_sid, 0.1)
+        hippo_occ_mesh_replace(parent_obj, data)
+        occ.delete_shape(old_sid)
+        parent_obj["hippo_occ_shape_id"] = new_sid
+        return True
+    except Exception:
+        return False
+
+
+def hippo_occ_draw_empty_handles_callback():
+    context = bpy.context
+    if not context or not context.scene:
+        return
+    shader = gpu.shader.from_builtin("UNIFORM_COLOR")
+    lattice_lines = []
+    primitive_lines = []
+    point_coords = []
+    for obj in context.scene.objects:
+        if not hippo_occ_is_object(obj) or not obj.get("hippo_occ_points_on", False):
+            continue
+        origin = obj.location.copy()
+        occ_type = obj.get("hippo_occ_type", "")
+        is_surface = occ_type in {"loft", "revolve", "sweep1", "planarsrf", "edgesrf", "step", "3dm", "mesh_to_occ_surface", "exploded_face"}
+
+        obj_handles = [h for h in bpy.data.objects
+                       if hippo_occ_is_handle(h) and h.get("hippo_occ_parent") == obj.name]
+
+        if is_surface and len(obj_handles) > 1:
+            cp_dict = {}
+            for h in obj_handles:
+                u = h.get("hippo_occ_cp_u", -1)
+                v = h.get("hippo_occ_cp_v", -1)
+                if u >= 0 and v >= 0:
+                    cp_dict[(u, v)] = h.location.copy()
+            if cp_dict:
+                max_u = max(u for u, v in cp_dict)
+                max_v = max(v for u, v in cp_dict)
+                for u in range(max_u + 1):
+                    for v in range(max_v + 1):
+                        p = cp_dict.get((u, v))
+                        if p is None:
+                            continue
+                        pu = cp_dict.get((u + 1, v))
+                        if pu is not None:
+                            lattice_lines.extend([p, pu])
+                        pv = cp_dict.get((u, v + 1))
+                        if pv is not None:
+                            lattice_lines.extend([p, pv])
+                        point_coords.append(p)
+        else:
+            for h in obj_handles:
+                point_coords.append(h.location.copy())
+                if h.get("hippo_occ_handle_type") not in {"origin", "center", "base"}:
+                    primitive_lines.extend([origin, h.location.copy()])
+
+    if lattice_lines:
+        gpu.state.line_width_set(1.0)
+        batch = batch_for_shader(shader, "LINES", {"pos": lattice_lines})
+        shader.bind()
+        shader.uniform_float("color", (0.35, 0.7, 1.0, 0.75))
+        batch.draw(shader)
+        gpu.state.line_width_set(1.0)
+
+    if primitive_lines:
+        gpu.state.line_width_set(1.4)
+        batch = batch_for_shader(shader, "LINES", {"pos": primitive_lines})
+        shader.bind()
+        shader.uniform_float("color", (1.0, 0.82, 0.05, 0.85))
+        batch.draw(shader)
+        gpu.state.line_width_set(1.0)
+
+    if point_coords:
+        gpu.state.point_size_set(9.0)
+        batch = batch_for_shader(shader, "POINTS", {"pos": point_coords})
+        shader.bind()
+        shader.uniform_float("color", (1.0, 0.82, 0.05, 1.0))
+        batch.draw(shader)
+        gpu.state.point_size_set(1.0)
+
+
+class HIPPO_OT_OCCTogglePoints(Operator):
+    bl_idname = "cad.occ_toggle_points"
+    bl_label = "OCC PointsOn"
+    bl_description = "Toggle OCC parameter handles. Tab on an OCC object enters/leaves this mode."
+
+    def execute(self, context):
+        ok, msg = hippo_occ_toggle_points(context)
+        if ok is None:
+            return {"PASS_THROUGH"}
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
+
+
+def hippo_occ_points_on_command(context):
+    return hippo_occ_points_on(context, hippo_occ_active_or_parent(context))
+
+
+def hippo_occ_points_off_command(context):
+    return hippo_occ_points_off(context, hippo_occ_active_or_parent(context))
+
+
+class HIPPO_OT_OCCToMesh(Operator):
+    bl_idname = "cad.occ_to_mesh"
+    bl_label = "OCC to Mesh"
+    bl_description = "Convert selected OCC objects to standard Blender mesh objects"
+
+    def execute(self, context):
+        ok, msg = run_occ_to_mesh_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+
+class HIPPO_OT_MeshToOCC(Operator):
+    bl_idname = "cad.mesh_to_occ"
+    bl_label = "Mesh to OCC"
+    bl_description = "Convert selected Blender mesh objects to OCC shapes"
+
+    def execute(self, context):
+        ok, msg = run_mesh_to_occ_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+
+class HIPPO_OT_OptimizeToGrid(Operator):
+    bl_idname = "cad.optimize_to_grid"
+    bl_label = "Optimize Mesh to Grid"
+    bl_description = "Resample a mesh onto a regular grid using active CPlane"
+
+    def execute(self, context):
+        ok, msg = run_optimize_to_grid_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+
+class HIPPO_OT_ExtractIsocurves(Operator):
+    bl_idname = "cad.occ_extract_isocurves"
+    bl_label = "Extract Isocurves"
+    bl_description = "Extract U and V isocurves from selected OCC surface(s) as editable NURBS curves"
+
+    def execute(self, context):
+        ok, msg = run_extract_isocurves_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+
+class HIPPO_OT_ExplodeOCC(Operator):
+    bl_idname = "cad.occ_explode"
+    bl_label = "Explode OCC"
+    bl_description = "Explode selected OCC solids/compounds/shells into individual editable surfaces"
+
+    def execute(self, context):
+        ok, msg = run_explode_occ_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+
+class HIPPO_OT_OCCToNurbs(Operator):
+    bl_idname = "cad.occ_to_nurbs"
+    bl_label = "OCC Curve to NURBS"
+    bl_description = "Convert selected OCC curve shapes to editable Blender NURBS curves"
+
+    def execute(self, context):
+        ok, msg = run_occ_to_nurbs_command(context)
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+
+# ---------------------------------------------------------------------------
+# Interactive Isocurve extraction (Rhino-style)
+# ---------------------------------------------------------------------------
+
+_hippo_iso_draw_handler = None
+_hippo_iso_preview_data = {}
+
+
+def _hippo_iso_preview_draw(*args, **kwargs):
+    """GPU draw callback for interactive isocurve preview."""
+    import gpu
+    from gpu_extras.batch import batch_for_shader
+
+    data = _hippo_iso_preview_data
+    if not data.get("active"):
+        return
+
+    shader = gpu.shader.from_builtin("UNIFORM_COLOR")
+
+    # Draw projected point
+    pt = data.get("proj_pt")
+    if pt is not None:
+        gpu.state.point_size_set(12.0)
+        batch = batch_for_shader(shader, "POINTS", {"pos": [pt]})
+        shader.bind()
+        shader.uniform_float("color", (1.0, 0.5, 0.0, 1.0))
+        batch.draw(shader)
+        gpu.state.point_size_set(1.0)
+
+    # Draw isocurve preview polyline
+    pts = data.get("preview_pts", [])
+    if len(pts) >= 2:
+        gpu.state.line_width_set(2.0)
+        batch = batch_for_shader(shader, "LINE_STRIP", {"pos": pts})
+        shader.bind()
+        shader.uniform_float("color", (0.0, 0.8, 1.0, 0.9))
+        batch.draw(shader)
+        gpu.state.line_width_set(1.0)
+
+    # Draw surface normal at hit point
+    nor = data.get("normal")
+    if pt is not None and nor is not None:
+        p1 = pt
+        p2 = (pt[0] + nor[0] * 0.5, pt[1] + nor[1] * 0.5, pt[2] + nor[2] * 0.5)
+        batch = batch_for_shader(shader, "LINES", {"pos": [p1, p2]})
+        shader.bind()
+        shader.uniform_float("color", (0.0, 1.0, 0.2, 0.7))
+        batch.draw(shader)
+
+
+def _hippo_iso_set_preview(context, obj, mouse_xy, direction):
+    """Update preview data from a mouse position on the 3D view."""
+    global _hippo_iso_preview_data
+    data = _hippo_iso_preview_data
+    data["direction"] = direction
+
+    sid = int(obj.get("hippo_occ_shape_id", -1))
+    if sid < 0:
+        return
+
+    try:
+        occ = hippo_load_occ_core()
+    except Exception:
+        return
+
+    if not occ.has_shape(sid):
+        return
+
+    # Ray cast from view to get a 3D point near the surface
+    region = context.region
+    rv3d = context.region_data
+    if region is None or rv3d is None:
+        return
+
+    coord = (mouse_xy[0] - region.x, mouse_xy[1] - region.y)
+    vec = view3d_utils.region_2d_to_location_3d(
+        region, rv3d, coord, rv3d.view_location
+    )
+    view_dir = rv3d.view_rotation @ Vector((0.0, 0.0, -1.0))
+    view_dir.normalize()
+
+    # Try ray-casting on the object's mesh first for approximate point
+    depsgraph = context.evaluated_depsgraph_get()
+    try:
+        rc = bpy.context.scene.ray_cast(depsgraph, vec, view_dir, distance=1000.0)
+        if isinstance(rc, tuple) and len(rc) >= 4:
+            hit = rc[0]
+            loc = rc[1]
+            norm = rc[2]
+        else:
+            hit = False
+            loc = vec
+    except Exception:
+        hit = False
+        loc = vec
+    if not hit:
+        loc = vec
+
+    # The OCC shape is stored in local space (origin).
+    # Transform the world-space hit point to local space before projection.
+    try:
+        inv_mw = obj.matrix_world.copy()
+        inv_mw.invert()
+    except Exception:
+        inv_mw = Matrix.Identity(4)
+    local_pt = inv_mw @ Vector(loc)
+
+    # OCC UV projection in local space
+    try:
+        proj = occ.project_point_to_surface_uv(sid, [local_pt.x, local_pt.y, local_pt.z])
+    except Exception:
+        return
+
+    if not proj.get("found"):
+        return
+
+    u = float(proj["u"])
+    v = float(proj["v"])
+    data["u"] = u
+    data["v"] = v
+
+    # Transform projected point and normal back to world space for display
+    proj_pt_local = Vector(proj["point"])
+    proj_pt_world = obj.matrix_world @ proj_pt_local
+    data["proj_pt"] = (proj_pt_world.x, proj_pt_world.y, proj_pt_world.z)
+
+    # Normal transform: use the inverse-transpose of the upper 3x3 for correct orientation
+    try:
+        normal_local = Vector(proj["normal"])
+        normal_world = (obj.matrix_world.to_3x3().inverted_safe().transposed() @ normal_local).normalized()
+    except Exception:
+        normal_world = Vector((0.0, 0.0, 1.0))
+    data["normal"] = (normal_world.x, normal_world.y, normal_world.z)
+
+    # Build preview isocurve polyline
+    try:
+        if direction == "U":
+            cid = occ.extract_isocurve_u(sid, u)
+        else:
+            cid = occ.extract_isocurve_v(sid, v)
+        curve_data = occ.remesh_curve(cid, 0.05)
+        edges = curve_data.get("edges", [])
+        if edges:
+            pts = []
+            for p in edges[0]:
+                # Transform each preview point from local to world space
+                wp = obj.matrix_world @ Vector((p[0], p[1], p[2]))
+                pts.append((wp.x, wp.y, wp.z))
+            data["preview_pts"] = pts
+        else:
+            data["preview_pts"] = []
+    except Exception:
+        data["preview_pts"] = []
+
+    # Force redraw
+    if context.area:
+        context.area.tag_redraw()
+
+
+class HIPPO_OT_ExtractIsoInteractive(Operator):
+    bl_idname = "cad.occ_extract_iso_interactive"
+    bl_label = "Extract Isocurve Interactive"
+    bl_description = "Click on a surface to place and extract U/V isocurves with live preview"
+    bl_options = {"REGISTER", "UNDO"}
+
+    direction: StringProperty(default="U")
+
+    def modal(self, context, event):
+        global _hippo_iso_preview_data, _hippo_iso_draw_handler
+        data = _hippo_iso_preview_data
+
+        if event.type in {"ESC", "RIGHTMOUSE"}:
+            self._cleanup(context)
+            return {"CANCELLED"}
+
+        if event.type == "TAB" and event.value == "PRESS":
+            # Toggle U/V
+            data["direction"] = "V" if data.get("direction") == "U" else "U"
+            _hippo_iso_set_preview(context, data["obj"], (event.mouse_x, event.mouse_y), data["direction"])
+            return {"RUNNING_MODAL"}
+
+        if event.type == "MOUSEMOVE":
+            _hippo_iso_set_preview(context, data["obj"], (event.mouse_x, event.mouse_y), data.get("direction", "U"))
+            return {"RUNNING_MODAL"}
+
+        if event.type == "LEFTMOUSE" and event.value == "PRESS":
+            # Commit: extract the curve
+            ok, msg = self._commit(context)
+            self.report({"INFO" if ok else "WARNING"}, msg)
+            # Keep running so user can place more curves; ESC to finish
+            return {"RUNNING_MODAL"}
+
+        return {"PASS_THROUGH"}
+
+    def invoke(self, context, event):
+        global _hippo_iso_preview_data, _hippo_iso_draw_handler
+
+        obj = context.active_object
+        if not hippo_occ_is_object(obj):
+            self.report({"WARNING"}, "Select an OCC surface first.")
+            return {"CANCELLED"}
+
+        sid = int(obj.get("hippo_occ_shape_id", -1))
+        if sid < 0:
+            self.report({"WARNING"}, "Selected object has no OCC shape ID.")
+            return {"CANCELLED"}
+
+        try:
+            occ = hippo_load_occ_core()
+        except Exception as exc:
+            self.report({"WARNING"}, f"OCC core not available: {exc}")
+            return {"CANCELLED"}
+
+        if not occ.has_shape(sid):
+            self.report({"WARNING"}, "Shape ID not found in OCC registry.")
+            return {"CANCELLED"}
+
+        # Ensure the shape has a surface face
+        bounds = occ.get_surface_bounds(sid)
+        if not bounds.get("found"):
+            self.report({"WARNING"}, "Selected object has no surface face.")
+            return {"CANCELLED"}
+
+        _hippo_iso_preview_data = {
+            "active": True,
+            "obj": obj,
+            "direction": self.direction,
+            "u": 0.0,
+            "v": 0.0,
+            "proj_pt": None,
+            "normal": None,
+            "preview_pts": [],
+        }
+
+        # Add draw handler
+        args = (context,)
+        _hippo_iso_draw_handler = bpy.types.SpaceView3D.draw_handler_add(
+            _hippo_iso_preview_draw, args, "WINDOW", "POST_VIEW"
+        )
+
+        context.window_manager.modal_handler_add(self)
+        context.workspace.status_text_set("Click on surface to place isocurve | TAB to toggle U/V | ESC to finish")
+        return {"RUNNING_MODAL"}
+
+    def _commit(self, context):
+        global _hippo_iso_preview_data
+        data = _hippo_iso_preview_data
+        obj = data.get("obj")
+        if obj is None:
+            return False, "No object."
+        sid = int(obj.get("hippo_occ_shape_id", -1))
+        if sid < 0:
+            return False, "No shape ID."
+        try:
+            occ = hippo_load_occ_core()
+        except Exception as exc:
+            return False, str(exc)
+
+        u = float(data.get("u", 0.0))
+        v = float(data.get("v", 0.0))
+        direction = data.get("direction", "U")
+
+        try:
+            if direction == "U":
+                cid = occ.extract_isocurve_u(sid, u)
+                name_suffix = f"_UIso_{u:.4f}"
+            else:
+                cid = occ.extract_isocurve_v(sid, v)
+                name_suffix = f"_VIso_{v:.4f}"
+            nurbs_data = occ.extract_nurbs_curve_data(cid)
+        except Exception as exc:
+            return False, f"Extraction failed: {exc}"
+
+        nurbs_obj = None
+        if nurbs_data.get("found"):
+            nurbs_obj = _create_nurbs_curve_from_true_nurbs(context, obj, nurbs_data, name_suffix=name_suffix)
+        if nurbs_obj is None:
+            # Fallback: use dense polyline remesh
+            try:
+                curve_data = occ.remesh_curve(cid, 0.05)
+                nurbs_obj = _create_nurbs_curve_from_occ_curve(context, obj, curve_data, name_suffix=name_suffix)
+            except Exception:
+                pass
+        if nurbs_obj:
+            nurbs_obj["hippo_kernel"] = "nurbs"
+            nurbs_obj["hippo_shape"] = "isocurve"
+            nurbs_obj["hippo_occ_parent"] = obj.name
+            nurbs_obj["hippo_iso_direction"] = direction
+            nurbs_obj["hippo_iso_param"] = u if direction == "U" else v
+            return True, f"Created {direction}-isocurve at param {u if direction == 'U' else v:.4f}."
+        return False, "Failed to create NURBS curve."
+
+    def _cleanup(self, context):
+        global _hippo_iso_preview_data, _hippo_iso_draw_handler
+        _hippo_iso_preview_data = {}
+        if _hippo_iso_draw_handler is not None:
+            try:
+                bpy.types.SpaceView3D.draw_handler_remove(_hippo_iso_draw_handler, "WINDOW")
+            except Exception:
+                pass
+            _hippo_iso_draw_handler = None
+        context.workspace.status_text_set("")
+
+    def cancel(self, context):
+        self._cleanup(context)
+
+
+classes = [HIPPO_OT_OCCTogglePoints, HIPPO_OT_OCCBox, HIPPO_OT_OCCSphere, HIPPO_OT_OCCCylinder, HIPPO_OT_OCCCone, HIPPO_OT_OCCTorus, HIPPO_OT_OCCLoft, HIPPO_OT_OCCRevolve, HIPPO_OT_OCCSweep1, HIPPO_OT_OCCPlanarSrf, HIPPO_OT_OCCEdgeSrf, HIPPO_OT_OCCBooleanFuse, HIPPO_OT_OCCBooleanCut, HIPPO_OT_OCCBooleanCommon, HIPPO_OT_OCCSplit, HIPPO_OT_ExportSTEP, HIPPO_OT_ImportSTEP, HIPPO_OT_Export3DM, HIPPO_OT_Import3DM, HIPPO_OT_OCCToMesh, HIPPO_OT_MeshToOCC, HIPPO_OT_OptimizeToGrid, HIPPO_OT_ExtractIsocurves, HIPPO_OT_ExplodeOCC, HIPPO_OT_OCCToNurbs, HIPPO_OT_ExtractIsoInteractive, Hippo3D_OT_Command, Hippo3D_OT_StartLine, Hippo3D_OT_StartPolyline, Hippo3D_OT_StartRectangle, Hippo3D_OT_StartCircle, Hippo3D_OT_StartNurbs, Hippo3D_OT_SetSelectedNurbsDegree, Hippo3D_OT_Hippo3D_Loft, CAD_OT_LoftSurface, CAD_OT_LoftRealModifier, HIPPO_OT_NativeStatus, HIPPO_OT_StartArc, HIPPO_OT_Ellipse, HIPPO_OT_Polygon, HIPPO_OT_Project, HIPPO_OT_Array, HIPPO_OT_Explode, HIPPO_OT_XLine, HIPPO_OT_Offset,  HIPPO_OT_Trim, HIPPO_OT_Hippo3D_PlanarSurface, HIPPO_OT_Hippo3D_EdgeSurface, Hippo3D_OT_Hippo3D_Revolve, Hippo3D_OT_ClearRevolveAxis, Hippo3D_OT_SetRevolveAxis, CAD_OT_PipeSurface, CAD_OT_ExtrudeSurface, Hippo3D_OT_StartCommand, Hippo3D_OT_ToggleOrtho, Hippo3D_OT_ConvertToMesh, Hippo3D_OT_Join, Hippo3D_OT_SaveCPlane, Hippo3D_OT_RestoreCPlane, Hippo3D_OT_StartCPlane3Pt, Hippo3D_OT_StartCPlaneFace, Hippo3D_OT_StartCPlaneCurvePerp, Hippo3D_OT_RotateCPlane, Hippo3D_OT_StartCPlaneRotate3Pt, Hippo3D_OT_ApplyCPlaneAxisRotation, Hippo3D_OT_StartCPlaneAxisRotate, Hippo3D_OT_StartCPlaneMove, Hippo3D_OT_CameraToCPlane, Hippo3D_OT_ViewToCPlane, Hippo3D_OT_StartCPlaneZAxis, Hippo3D_OT_StartCPlaneXAxis, Hippo3D_OT_ToggleCPlaneVisibilityExplicit, Hippo3D_OT_ActivateCPlaneExplicit, Hippo3D_OT_RefreshCPlaneList, Hippo3D_OT_DeleteSelectedCPlane, Hippo3D_OT_ActivateSelectedCPlane, Hippo3D_OT_ToggleSelectedCPlaneVisible, Hippo3D_UL_CPlaneList, Hippo3D_CPlaneListItem, Hippo3D_OT_SetBuiltinCPlane, Hippo3D_OT_RestoreCPlaneByName, Hippo3D_OT_SetCPlaneVisible, Hippo3D_OT_DeleteCPlane, Hippo3D_PT_MainPanel]
 
 
 def _cad_cplane_enum_update(self, context):
@@ -4623,6 +7864,22 @@ def register_props():
     bpy.types.Scene.hippo_array_dz = FloatProperty(name="Array Z", default=0.0, soft_min=-100.0, soft_max=100.0)
     bpy.types.Scene.hippo_ellipse_rx = FloatProperty(name="Ellipse Radius X", default=2.0, min=0.001, soft_max=100.0)
     bpy.types.Scene.hippo_ellipse_ry = FloatProperty(name="Ellipse Radius Y", default=1.0, min=0.001, soft_max=100.0)
+
+    bpy.types.Scene.hippo_occ_box_width = FloatProperty(name="OCC Box Width", default=1.0, min=0.001, soft_max=100.0)
+    bpy.types.Scene.hippo_occ_box_depth = FloatProperty(name="OCC Box Depth", default=1.0, min=0.001, soft_max=100.0)
+    bpy.types.Scene.hippo_occ_box_height = FloatProperty(name="OCC Box Height", default=1.0, min=0.001, soft_max=100.0)
+    bpy.types.Scene.hippo_occ_sphere_radius = FloatProperty(name="OCC Sphere Radius", default=1.0, min=0.001, soft_max=100.0)
+    bpy.types.Scene.hippo_occ_cylinder_radius = FloatProperty(name="OCC Cylinder Radius", default=1.0, min=0.001, soft_max=100.0)
+    bpy.types.Scene.hippo_occ_cylinder_height = FloatProperty(name="OCC Cylinder Height", default=2.0, min=0.001, soft_max=100.0)
+    bpy.types.Scene.hippo_occ_cone_radius1 = FloatProperty(name="OCC Cone Radius 1", default=1.0, min=0.001, soft_max=100.0)
+    bpy.types.Scene.hippo_occ_cone_radius2 = FloatProperty(name="OCC Cone Radius 2", default=0.0, min=0.0, soft_max=100.0)
+    bpy.types.Scene.hippo_occ_cone_height = FloatProperty(name="OCC Cone Height", default=2.0, min=0.001, soft_max=100.0)
+    bpy.types.Scene.hippo_occ_torus_major = FloatProperty(name="OCC Torus Major", default=3.0, min=0.001, soft_max=100.0)
+    bpy.types.Scene.hippo_occ_torus_minor = FloatProperty(name="OCC Torus Minor", default=1.0, min=0.001, soft_max=100.0)
+
+    bpy.types.Scene.hippo_grid_res_u = IntProperty(name="Grid U Resolution", default=8, min=2, max=256)
+    bpy.types.Scene.hippo_grid_res_v = IntProperty(name="Grid V Resolution", default=8, min=2, max=256)
+
     bpy.types.Scene.cad_osnap_endpoint = BoolProperty(name="Endpoint", default=True)
     bpy.types.Scene.cad_osnap_midpoint = BoolProperty(name="Midpoint", default=True)
     bpy.types.Scene.cad_osnap_nearest = BoolProperty(name="Nearest", default=True)
@@ -4693,7 +7950,7 @@ def register_props():
 
 
 def unregister_props():
-    for name in ["cad_osnap_endpoint", "cad_osnap_midpoint", "cad_osnap_nearest", "cad_osnap_center", "cad_osnap_grid", "cad_ortho", "cad_grid_size", "cad_snap_radius", "cad_active_cplane_name", "cad_cplane_save_name", "cad_cplanes_json", "cad_show_cplane_visuals", "cad_show_cplane_grid_visuals", "cad_show_cplane_labels", "cad_cplane_visual_grid_count", "cad_cplane_visual_grid_spacing", "cad_cplane_visual_axis_length", "cad_cplane_visibility_json", "cad_cplane_items", "cad_cplane_index", "cad_active_cplane_dropdown", "cad_current_cplane_visible", "cad_cplane", "cad_cplane_rotate_angle", "cad_cplane_axis_rotation_angle", "cad_cplane_axis_rotation_name", "cad_cplane_axis_rotation_json", "cad_cplane_camera_distance", "cad_nurbs_degree", "cad_selected_nurbs_degree", "cad_loft_samples", "cad_surface_samples", "cad_extrude_distance", "cad_pipe_radius", "cad_pipe_resolution", "cad_revolve_angle", "cad_revolve_steps", "cad_sweep_rail_samples", "cad_sweep_profile_samples", "cad_revolve_axis_json", "hippo_offset_distance", "hippo_xline_length", "hippo_array_count", "hippo_array_dx", "hippo_array_dy", "hippo_array_dz", "hippo_ellipse_rx", "hippo_ellipse_ry", "hippo_polygon_sides", "hippo_polygon_radius", "hippo_fillet_radius", "hippo_trim_tolerance"]:
+    for name in ["cad_osnap_endpoint", "cad_osnap_midpoint", "cad_osnap_nearest", "cad_osnap_center", "cad_osnap_grid", "cad_ortho", "cad_grid_size", "cad_snap_radius", "cad_active_cplane_name", "cad_cplane_save_name", "cad_cplanes_json", "cad_show_cplane_visuals", "cad_show_cplane_grid_visuals", "cad_show_cplane_labels", "cad_cplane_visual_grid_count", "cad_cplane_visual_grid_spacing", "cad_cplane_visual_axis_length", "cad_cplane_visibility_json", "cad_cplane_items", "cad_cplane_index", "cad_active_cplane_dropdown", "cad_current_cplane_visible", "cad_cplane", "cad_cplane_rotate_angle", "cad_cplane_axis_rotation_angle", "cad_cplane_axis_rotation_name", "cad_cplane_axis_rotation_json", "cad_cplane_camera_distance", "cad_nurbs_degree", "cad_selected_nurbs_degree", "cad_loft_samples", "cad_surface_samples", "cad_extrude_distance", "cad_pipe_radius", "cad_pipe_resolution", "cad_revolve_angle", "cad_revolve_steps", "cad_sweep_rail_samples", "cad_sweep_profile_samples", "cad_revolve_axis_json", "hippo_offset_distance", "hippo_xline_length", "hippo_array_count", "hippo_array_dx", "hippo_array_dy", "hippo_array_dz", "hippo_ellipse_rx", "hippo_ellipse_ry", "hippo_polygon_sides", "hippo_polygon_radius", "hippo_fillet_radius", "hippo_trim_tolerance", "hippo_occ_box_width", "hippo_occ_box_depth", "hippo_occ_box_height", "hippo_occ_sphere_radius", "hippo_occ_cylinder_radius", "hippo_occ_cylinder_height", "hippo_occ_cone_radius1", "hippo_occ_cone_radius2", "hippo_occ_cone_height", "hippo_occ_torus_major", "hippo_occ_torus_minor", "hippo_grid_res_u", "hippo_grid_res_v"]:
         if hasattr(bpy.types.Scene, name):
             delattr(bpy.types.Scene, name)
 
@@ -7203,452 +10460,6 @@ def create_ellipse_from_2_points(context, p0, p1):
     )
 
 
-class Hippo3D_PT_MainPanel(Panel):
-    bl_label = "Hippo3D"
-    bl_idname = "Hippo3D_PT_main_panel"
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "Hippo3D"
-
-    def draw(self, context):
-        layout = self.layout
-        col = layout.column(align=True)
-        col.label(text="Commands")
-        col.operator("cad.start_command", text="Hippo Command Line  Ctrl+/", icon="CONSOLE")
-        col.separator()
-        col.label(text="Curve Creation")
-        col.operator("cad.start_line", text="Line", icon="CURVE_PATH")
-        col.operator("cad.start_polyline", text="Polyline", icon="IPO_LINEAR")
-        col.operator("cad.start_rectangle", text="Rectangle", icon="MESH_PLANE")
-        col.operator("cad.start_circle", text="Circle", icon="MESH_CIRCLE")
-        col.operator("cad.start_arc", text="Arc")
-        col.prop(context.scene, "hippo_ellipse_ry", text="Ellipse Secondary Radius")
-        col.operator("cad.ellipse", text="Ellipse")
-        col.prop(context.scene, "hippo_polygon_sides", text="Polygon Sides")
-        col.operator("cad.polygon", text="Polygon")
-        col.operator("cad.start_nurbs", text="NURBS Curve", icon="CURVE_BEZCURVE")
-        col.prop(context.scene, "hippo_xline_length", text="XLine Length")
-        col.operator("cad.xline", text="XLine")
-
-        col.separator()
-        col.label(text="Curve Modification")
-        col.prop(context.scene, "hippo_offset_distance", text="Offset Distance")
-        col.operator("cad.offset", text="Offset")
-        col.prop(context.scene, "hippo_trim_tolerance", text="Trim Tolerance")
-        col.operator("cad.trim", text="Trim")
-        col.operator("cad.explode", text="Explode")
-        col.operator("cad.project", text="Project")
-        col.prop(context.scene, "cad_nurbs_degree", text="NURBS Degree")
-        col.prop(context.scene, "cad_selected_nurbs_degree", text="Selected Degree")
-        col.operator("cad.set_selected_nurbs_degree", text="Set Selected Degree")
-        col.operator("cad.convert_to_mesh", text="Convert to Mesh", icon="MESH_DATA")
-        col.operator("cad.join", text="Join", icon="AUTOMERGE_OFF")
-
-        col.separator()
-        col.label(text="Object Tools")
-        col.prop(context.scene, "hippo_array_count", text="Array Count")
-        col.prop(context.scene, "hippo_array_dx", text="Array X")
-        col.prop(context.scene, "hippo_array_dy", text="Array Y")
-        col.prop(context.scene, "hippo_array_dz", text="Array Z")
-        col.operator("cad.array", text="Array")
-        col.label(text="Surface-Like Operations")
-        col.prop(context.scene, "cad_loft_samples", text="Loft Samples")
-        col.operator("cad.loft_surface", text="Loft Surface", icon="SURFACE_DATA")
-        col.separator()
-        col.prop(context.scene, "cad_surface_samples", text="Samples")
-        col.prop(context.scene, "cad_extrude_distance", text="Extrude Distance")
-        col.operator("cad.extrude_surface", text="Extrude", icon="MOD_SOLIDIFY")
-        col.prop(context.scene, "cad_pipe_radius", text="Pipe Radius")
-        col.prop(context.scene, "cad_pipe_resolution", text="Pipe Resolution")
-        col.operator("cad.pipe_surface", text="Pipe", icon="CURVE_DATA")
-        col.prop(context.scene, "cad_revolve_angle", text="Revolve Degree", slider=True)
-        col.prop(context.scene, "cad_revolve_steps", text="Revolve Steps")
-        col.operator("cad.set_revolve_axis", text="Set Revolve Axis")
-        col.operator("cad.clear_revolve_axis", text="Clear Revolve Axis")
-        col.operator("cad.revolve_surface", text="Revolve", icon="MOD_SCREW")
-        col.operator("cad.edgesrf", text="Edge Surface", icon="SURFACE_DATA")
-        col.operator("cad.planarsrf", text="Planar Surface", icon="MESH_PLANE")
-        col.operator("cad.hippo_native_status", text="Native C Backend Status")
-
-
-        layout.separator()
-        box = layout.box()
-        box.label(text="CPlanes")
-
-        sync_cplane_dropdown(context)
-        box.prop(context.scene, "cad_active_cplane_dropdown", text="Active")
-
-        box.prop(context.scene, "cad_cplane_save_name", text="Name")
-        row = box.row(align=True)
-        row.operator("cad.save_cplane", text="Save Current")
-        row.operator("cad.restore_cplane", text="Restore by Name")
-        box.operator("cad.start_cplane_3pt", text="Create 3-Point CPlane")
-        box.operator("cad.start_cplane_xaxis", text="Create X-Axis CPlane")
-        box.operator("cad.start_cplane_zaxis", text="Create Z-Axis CPlane")
-        box.operator("cad.start_cplane_face", text="Create Face CPlane")
-        box.operator("cad.start_cplane_curve_perp", text="Create Perp Curve CPlane")
-
-        box.separator()
-        box.prop(context.scene, "cad_cplane_rotate_angle", text="Rotate Angle")
-        row = box.row(align=True)
-        op = row.operator("cad.rotate_cplane", text="Rot X")
-        op.axis = "X"
-        op = row.operator("cad.rotate_cplane", text="Rot Y")
-        op.axis = "Y"
-        op = row.operator("cad.rotate_cplane", text="Rot Z")
-        op.axis = "Z"
-        box.operator("cad.start_cplane_rotate3pt", text="Rotate by 3 Points")
-        box.operator("cad.start_cplane_axisrotate", text="Axis Rotate + Slider")
-        box.operator("cad.start_cplane_move", text="Move CPlane")
-
-        box.separator()
-        box.operator("cad.view_to_cplane", text="View to CPlane")
-        box.prop(context.scene, "cad_cplane_camera_distance", text="Camera Distance")
-        box.operator("cad.camera_to_cplane", text="Camera to CPlane")
-        box.prop(context.scene, "cad_cplane_axis_rotation_angle", text="Axis Angle", slider=True)
-        box.operator("cad.apply_cplane_axis_rotation", text="Apply Axis Angle")
-
-        box.separator()
-        box.label(text="CPlane Layers")
-
-        if hasattr(context.scene, "cad_cplane_items") and hasattr(context.scene, "cad_cplane_index"):
-            box.template_list(
-                "Hippo3D_UL_cplane_list",
-                "",
-                context.scene,
-                "cad_cplane_items",
-                context.scene,
-                "cad_cplane_index",
-                rows=7,
-            )
-        else:
-            box.label(text="CPlane list not registered")
-
-        row = box.row(align=True)
-        row.operator("cad.delete_selected_cplane", text="Delete Selected", icon="TRASH")
-
-        box.label(text="Cmd: cplane 3pt/save/restore/list/delete")
-        box.label(text="Relative input: @x,y,z")
-
-        layout.separator()
-        box = layout.box()
-        box.label(text="Osnaps")
-        row = box.row(align=True)
-        row.prop(context.scene, "cad_osnap_endpoint", text="End")
-        row.prop(context.scene, "cad_osnap_midpoint", text="Mid")
-        row = box.row(align=True)
-        row.prop(context.scene, "cad_osnap_nearest", text="Near")
-        row.prop(context.scene, "cad_osnap_center", text="Cen")
-        row = box.row(align=True)
-        row.prop(context.scene, "cad_osnap_grid", text="Grid")
-        box.prop(context.scene, "cad_grid_size", text="Grid Size")
-        box.prop(context.scene, "cad_snap_radius", text="Snap Radius")
-
-        layout.separator()
-        row = layout.row(align=True)
-        row.prop(context.scene, "cad_ortho", text="Ortho F8", toggle=True)
-        row.operator("cad.toggle_ortho", text="Toggle")
-
-        layout.separator()
-        box = layout.box()
-        box.label(text="How to use")
-        box.label(text="Press /, type line, Enter")
-        box.label(text="Commands: line, polyline, rectangle, circle, nurbs")
-        box.label(text="Click points or type x,y,z")
-        box.label(text="F8 toggles Ortho; Esc exits")
-
-        if state.active:
-            layout.separator()
-            layout.label(text="Active CAD command:", icon="PLAY")
-            layout.label(text=command_label())
-            layout.label(text=f"Snap: {state.snap_label or 'none'}")
-
-
-# -----------------------------------------------------------------------------
-# Toolbar tool
-# -----------------------------------------------------------------------------
-
-class Hippo3D_WST_LineTool(WorkSpaceTool):
-    bl_space_type = "VIEW_3D"
-    bl_context_mode = "OBJECT"
-    bl_idname = "cad_blender.line_tool"
-    bl_label = "Line"
-    bl_description = "Start Line command"
-    bl_icon = (ICON_DIR / "line").as_posix()
-    bl_widget = None
-    bl_keymap = (("cad.start_line", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
-
-
-class Hippo3D_WST_PolylineTool(WorkSpaceTool):
-    bl_space_type = "VIEW_3D"
-    bl_context_mode = "OBJECT"
-    bl_idname = "cad_blender.polyline_tool"
-    bl_label = "Polyline"
-    bl_description = "Start Polyline command"
-    bl_icon = (ICON_DIR / "polyline").as_posix()
-    bl_widget = None
-    bl_keymap = (("cad.start_polyline", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
-
-
-class Hippo3D_WST_RectangleTool(WorkSpaceTool):
-    bl_space_type = "VIEW_3D"
-    bl_context_mode = "OBJECT"
-    bl_idname = "cad_blender.rectangle_tool"
-    bl_label = "Rectangle"
-    bl_description = "Start Rectangle command"
-    bl_icon = (ICON_DIR / "rectangle").as_posix()
-    bl_widget = None
-    bl_keymap = (("cad.start_rectangle", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
-
-
-class Hippo3D_WST_CircleTool(WorkSpaceTool):
-    bl_space_type = "VIEW_3D"
-    bl_context_mode = "OBJECT"
-    bl_idname = "cad_blender.circle_tool"
-    bl_label = "Circle"
-    bl_description = "Start Circle command"
-    bl_icon = (ICON_DIR / "circle").as_posix()
-    bl_widget = None
-    bl_keymap = (("cad.start_circle", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
-
-
-class Hippo3D_WST_NurbsTool(WorkSpaceTool):
-    bl_space_type = "VIEW_3D"
-    bl_context_mode = "OBJECT"
-    bl_idname = "cad_blender.nurbs_tool"
-    bl_label = "NURBS Curve"
-    bl_description = "Start NURBS Curve command"
-    bl_icon = (ICON_DIR / "nurbs").as_posix()
-    bl_widget = None
-    bl_keymap = (("cad.start_nurbs", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
-
-
-
-
-class Hippo3D_WST_ArcTool(WorkSpaceTool):
-    bl_space_type = "VIEW_3D"
-    bl_context_mode = "OBJECT"
-    bl_idname = "hippo3d.arc_tool"
-    bl_label = "Arc"
-    bl_description = "Start Arc command"
-    bl_icon = (ICON_DIR / "arc").as_posix()
-    bl_widget = None
-    bl_keymap = (("cad.start_arc", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
-
-
-class Hippo3D_WST_EllipseTool(WorkSpaceTool):
-    bl_space_type = "VIEW_3D"
-    bl_context_mode = "OBJECT"
-    bl_idname = "hippo3d.ellipse_tool"
-    bl_label = "Ellipse"
-    bl_description = "Start Ellipse command"
-    bl_icon = (ICON_DIR / "ellipse").as_posix()
-    bl_widget = None
-    bl_keymap = (("cad.ellipse", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
-
-
-class Hippo3D_WST_PolygonTool(WorkSpaceTool):
-    bl_space_type = "VIEW_3D"
-    bl_context_mode = "OBJECT"
-    bl_idname = "hippo3d.polygon_tool"
-    bl_label = "Polygon"
-    bl_description = "Create Polygon"
-    bl_icon = (ICON_DIR / "polygon").as_posix()
-    bl_widget = None
-    bl_keymap = (("cad.polygon", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
-
-
-class Hippo3D_WST_XLineTool(WorkSpaceTool):
-    bl_space_type = "VIEW_3D"
-    bl_context_mode = "OBJECT"
-    bl_idname = "hippo3d.xline_tool"
-    bl_label = "XLine"
-    bl_description = "Start XLine command"
-    bl_icon =  (ICON_DIR / "xline").as_posix()
-    bl_widget = None
-    bl_keymap = (("cad.xline", {"type": "LEFTMOUSE", "value": "PRESS"}, None),)
-
-
-# -----------------------------------------------------------------------------
-# Registration
-# -----------------------------------------------------------------------------
-
-addon_keymaps = []
-
-
-
-class Hippo3D_OT_ActivateCPlaneExplicit(Operator):
-    bl_idname = "cad.activate_cplane_explicit"
-    bl_label = "Make CPlane Active"
-
-    name: StringProperty(default="")
-    builtin_mode: StringProperty(default="")
-    layer_key: StringProperty(default="")
-
-    def execute(self, context):
-        key = self.layer_key or ""
-
-        if key.startswith("BUILTIN:"):
-            mode = key.split(":", 1)[1]
-            set_builtin_cplane(context, mode)
-            self.report({"INFO"}, f"Active CPlane: {mode.title()}")
-        elif key.startswith("NAMED:"):
-            name = key.split(":", 1)[1]
-            if set_named_cplane(context, name):
-                self.report({"INFO"}, f"Active CPlane: {name}")
-            else:
-                self.report({"WARNING"}, f"No saved CPlane named '{name}'.")
-                return {"CANCELLED"}
-        elif self.builtin_mode:
-            set_builtin_cplane(context, self.builtin_mode)
-            self.report({"INFO"}, f"Active CPlane: {self.builtin_mode.title()}")
-        elif self.name:
-            if set_named_cplane(context, self.name):
-                self.report({"INFO"}, f"Active CPlane: {self.name}")
-            else:
-                self.report({"WARNING"}, f"No saved CPlane named '{self.name}'.")
-                return {"CANCELLED"}
-
-        sync_cplane_dropdown(context)
-
-        for area in context.screen.areas:
-            if area.type == "VIEW_3D":
-                area.tag_redraw()
-
-        return {"FINISHED"}
-
-
-
-class Hippo3D_OT_ToggleCPlaneVisibilityExplicit(Operator):
-    bl_idname = "cad.toggle_cplane_visibility_explicit"
-    bl_label = "Toggle CPlane Visibility"
-
-    name: StringProperty(default="")
-    builtin_mode: StringProperty(default="")
-    layer_key: StringProperty(default="")
-
-    def execute(self, context):
-        key = self.layer_key or ""
-
-        if key.startswith("BUILTIN:"):
-            mode = key.split(":", 1)[1]
-            current = is_cplane_visible(context, builtin_mode=mode)
-            set_cplane_visible(context, not current, builtin_mode=mode)
-        elif key.startswith("NAMED:"):
-            name = key.split(":", 1)[1]
-            current = is_cplane_visible(context, name=name)
-            set_cplane_visible(context, not current, name=name)
-        elif self.builtin_mode:
-            current = is_cplane_visible(context, builtin_mode=self.builtin_mode)
-            set_cplane_visible(context, not current, builtin_mode=self.builtin_mode)
-        elif self.name:
-            current = is_cplane_visible(context, name=self.name)
-            set_cplane_visible(context, not current, name=self.name)
-
-        for area in context.screen.areas:
-            if area.type == "VIEW_3D":
-                area.tag_redraw()
-
-        return {"FINISHED"}
-
-
-classes = [Hippo3D_OT_Command, Hippo3D_OT_StartLine, Hippo3D_OT_StartPolyline, Hippo3D_OT_StartRectangle, Hippo3D_OT_StartCircle, Hippo3D_OT_StartNurbs, Hippo3D_OT_SetSelectedNurbsDegree, Hippo3D_OT_Hippo3D_Loft, CAD_OT_LoftRealModifier, HIPPO_OT_NativeStatus, HIPPO_OT_StartArc, HIPPO_OT_Ellipse, HIPPO_OT_Polygon, HIPPO_OT_Project, HIPPO_OT_Array, HIPPO_OT_Explode, HIPPO_OT_XLine, HIPPO_OT_Offset,  HIPPO_OT_Trim, HIPPO_OT_Hippo3D_PlanarSurface, HIPPO_OT_Hippo3D_EdgeSurface, Hippo3D_OT_Hippo3D_Revolve, Hippo3D_OT_ClearRevolveAxis, Hippo3D_OT_SetRevolveAxis, CAD_OT_PipeSurface, CAD_OT_ExtrudeSurface, Hippo3D_OT_StartCommand, Hippo3D_OT_ToggleOrtho, Hippo3D_OT_ConvertToMesh, Hippo3D_OT_Join, Hippo3D_OT_SaveCPlane, Hippo3D_OT_RestoreCPlane, Hippo3D_OT_StartCPlane3Pt, Hippo3D_OT_StartCPlaneFace, Hippo3D_OT_StartCPlaneCurvePerp, Hippo3D_OT_RotateCPlane, Hippo3D_OT_StartCPlaneRotate3Pt, Hippo3D_OT_ApplyCPlaneAxisRotation, Hippo3D_OT_StartCPlaneAxisRotate, Hippo3D_OT_StartCPlaneMove, Hippo3D_OT_CameraToCPlane, Hippo3D_OT_ViewToCPlane, Hippo3D_OT_StartCPlaneZAxis, Hippo3D_OT_StartCPlaneXAxis, Hippo3D_OT_ToggleCPlaneVisibilityExplicit, Hippo3D_OT_ActivateCPlaneExplicit, Hippo3D_OT_RefreshCPlaneList, Hippo3D_OT_DeleteSelectedCPlane, Hippo3D_OT_ActivateSelectedCPlane, Hippo3D_OT_ToggleSelectedCPlaneVisible, Hippo3D_UL_CPlaneList, Hippo3D_CPlaneListItem, Hippo3D_OT_SetBuiltinCPlane, Hippo3D_OT_RestoreCPlaneByName, Hippo3D_OT_SetCPlaneVisible, Hippo3D_OT_DeleteCPlane, Hippo3D_PT_MainPanel]
-
-
-def _cad_cplane_enum_update(self, context):
-    # Choosing a built-in preset from the UI deactivates any restored named CPlane.
-    self.cad_active_cplane_name = ""
-
-
-def register_props():
-
-    bpy.types.Scene.hippo_fillet_radius = FloatProperty(name="Fillet Radius", default=1.0, min=0.001, soft_max=100.0)
-    bpy.types.Scene.hippo_trim_tolerance = FloatProperty(name="Trim Tolerance", default=0.05, min=0.0001, soft_max=10.0)
-
-    bpy.types.Scene.hippo_polygon_sides = IntProperty(name="Polygon Sides", default=6, min=3, max=256)
-    bpy.types.Scene.hippo_polygon_radius = FloatProperty(name="Polygon Radius", default=2.0, min=0.001, soft_max=100.0)
-
-    bpy.types.Scene.hippo_offset_distance = FloatProperty(name="Offset Distance", default=1.0, soft_min=-100.0, soft_max=100.0)
-    bpy.types.Scene.hippo_xline_length = FloatProperty(name="XLine Length", default=1000.0, min=1.0, soft_max=10000.0)
-    bpy.types.Scene.hippo_array_count = IntProperty(name="Array Count", default=5, min=1, max=1000)
-    bpy.types.Scene.hippo_array_dx = FloatProperty(name="Array X", default=2.0, soft_min=-100.0, soft_max=100.0)
-    bpy.types.Scene.hippo_array_dy = FloatProperty(name="Array Y", default=0.0, soft_min=-100.0, soft_max=100.0)
-    bpy.types.Scene.hippo_array_dz = FloatProperty(name="Array Z", default=0.0, soft_min=-100.0, soft_max=100.0)
-    bpy.types.Scene.hippo_ellipse_rx = FloatProperty(name="Ellipse Radius X", default=2.0, min=0.001, soft_max=100.0)
-    bpy.types.Scene.hippo_ellipse_ry = FloatProperty(name="Ellipse Radius Y", default=1.0, min=0.001, soft_max=100.0)
-    bpy.types.Scene.cad_osnap_endpoint = BoolProperty(name="Endpoint", default=True)
-    bpy.types.Scene.cad_osnap_midpoint = BoolProperty(name="Midpoint", default=True)
-    bpy.types.Scene.cad_osnap_nearest = BoolProperty(name="Nearest", default=True)
-    bpy.types.Scene.cad_osnap_center = BoolProperty(name="Center", default=True)
-    bpy.types.Scene.cad_osnap_grid = BoolProperty(name="Grid", default=False)
-    bpy.types.Scene.cad_ortho = BoolProperty(name="Ortho", default=False)
-    bpy.types.Scene.cad_grid_size = FloatProperty(name="Grid Size", default=1.0, min=0.001, soft_max=10.0)
-    bpy.types.Scene.cad_snap_radius = FloatProperty(name="Snap Radius", default=18.0, min=2.0, soft_max=80.0)
-    bpy.types.Scene.cad_nurbs_degree = IntProperty(name="NURBS Degree", default=3, min=1, max=11)
-    bpy.types.Scene.cad_selected_nurbs_degree = IntProperty(name="Selected NURBS Degree", default=3, min=1, max=11)
-    bpy.types.Scene.cad_loft_samples = IntProperty(name="Loft Samples", default=32, min=2, max=256)
-    bpy.types.Scene.cad_surface_samples = IntProperty(name="Surface Samples", default=32, min=2, max=256)
-    bpy.types.Scene.cad_extrude_distance = FloatProperty(name="Extrude Distance", default=5.0, soft_min=-100.0, soft_max=100.0)
-    bpy.types.Scene.cad_pipe_radius = FloatProperty(name="Pipe Radius", default=0.25, min=0.001, soft_max=10.0)
-    bpy.types.Scene.cad_pipe_resolution = IntProperty(name="Pipe Resolution", default=12, min=3, max=64)
-    bpy.types.Scene.cad_revolve_angle = FloatProperty(name="Revolve Degree", default=360.0, min=0.0, max=360.0, soft_min=0.0, soft_max=360.0)
-    bpy.types.Scene.cad_revolve_steps = IntProperty(name="Revolve Steps", default=48, min=3, max=256)
-    bpy.types.Scene.cad_revolve_axis_json = StringProperty(name="Revolve Axis", default="")
-    bpy.types.Scene.cad_sweep_rail_samples = IntProperty(name="Sweep Rail Samples", default=32, min=2, max=256)
-    bpy.types.Scene.cad_sweep_profile_samples = IntProperty(name="Sweep Profile Samples", default=24, min=2, max=256)
-    bpy.types.Scene.cad_active_cplane_name = StringProperty(name="Active Named CPlane", default="")
-    bpy.types.Scene.cad_cplane_save_name = StringProperty(name="CPlane Name", default="CPlane 01")
-    bpy.types.Scene.cad_cplane_rotate_angle = FloatProperty(name="Rotate Angle", default=90.0, soft_min=-360.0, soft_max=360.0)
-    bpy.types.Scene.cad_cplane_camera_distance = FloatProperty(name="Camera Distance", default=20.0, min=0.1, soft_max=100.0)
-
-    bpy.types.Scene.cad_cplane_axis_rotation_angle = FloatProperty(
-        name="Axis Angle",
-        default=0.0,
-        soft_min=-360.0,
-        soft_max=360.0,
-        update=cad_cplane_axis_rotation_angle_update,
-    )
-    bpy.types.Scene.cad_cplane_axis_rotation_name = StringProperty(name="Axis Rotation CPlane", default="")
-    bpy.types.Scene.cad_cplane_axis_rotation_json = StringProperty(name="Axis Rotation Data", default="{}")
-    bpy.types.Scene.cad_cplanes_json = StringProperty(name="Saved CPlanes", default="{}")
-    bpy.types.Scene.cad_cplane_visibility_json = StringProperty(name="CPlane Visibility", default="{}")
-    bpy.types.Scene.cad_show_cplane_visuals = BoolProperty(name="Show CPlanes", default=True)
-    bpy.types.Scene.cad_show_cplane_grid_visuals = BoolProperty(name="Show CPlane Grids", default=True)
-    bpy.types.Scene.cad_show_cplane_labels = BoolProperty(name="Show CPlane Labels", default=True)
-    bpy.types.Scene.cad_cplane_visual_grid_count = FloatProperty(name="CPlane Grid Count", default=6.0, min=1.0, soft_max=30.0)
-    bpy.types.Scene.cad_cplane_visual_grid_spacing = FloatProperty(name="CPlane Grid Spacing", default=1.0, min=0.001, soft_max=10.0)
-    bpy.types.Scene.cad_cplane_visual_axis_length = FloatProperty(name="CPlane Axis Length", default=2.0, min=0.1, soft_max=20.0)
-    bpy.types.Scene.cad_cplane_items = CollectionProperty(type=Hippo3D_CPlaneListItem)
-    bpy.types.Scene.cad_cplane_index = IntProperty(name="CPlane List Index", default=0)
-    bpy.types.Scene.cad_active_cplane_dropdown = EnumProperty(
-        name="Active CPlane",
-        description="Choose the active built-in or saved CPlane",
-        items=cplane_dropdown_items,
-        update=cplane_dropdown_update,
-    )
-    bpy.types.Scene.cad_current_cplane_visible = BoolProperty(
-        name="Current CPlane Visible",
-        description="Show or hide the currently active CPlane",
-        default=True,
-        update=current_cplane_visibility_update,
-    )
-    bpy.types.Scene.cad_cplane = EnumProperty(
-        name="CPlane",
-        description="Active CAD construction plane",
-        items=[
-            ("TOP", "Top / XY", "Draw on world XY"),
-            ("FRONT", "Front / XZ", "Draw on world XZ"),
-            ("RIGHT", "Right / YZ", "Draw on world YZ"),
-            ("WORLD", "World / XY", "World XY drawing plane")],
-        default="TOP",
-        update=_cad_cplane_enum_update,
-    )
-
-
-def unregister_props():
-    for name in ["cad_osnap_endpoint", "cad_osnap_midpoint", "cad_osnap_nearest", "cad_osnap_center", "cad_osnap_grid", "cad_ortho", "cad_grid_size", "cad_snap_radius", "cad_active_cplane_name", "cad_cplane_save_name", "cad_cplanes_json", "cad_show_cplane_visuals", "cad_show_cplane_grid_visuals", "cad_show_cplane_labels", "cad_cplane_visual_grid_count", "cad_cplane_visual_grid_spacing", "cad_cplane_visual_axis_length", "cad_cplane_visibility_json", "cad_cplane_items", "cad_cplane_index", "cad_active_cplane_dropdown", "cad_current_cplane_visible", "cad_cplane", "cad_cplane_rotate_angle", "cad_cplane_axis_rotation_angle", "cad_cplane_axis_rotation_name", "cad_cplane_axis_rotation_json", "cad_cplane_camera_distance", "cad_nurbs_degree", "cad_selected_nurbs_degree", "cad_loft_samples", "cad_surface_samples", "cad_extrude_distance", "cad_pipe_radius", "cad_pipe_resolution", "cad_revolve_angle", "cad_revolve_steps", "cad_sweep_rail_samples", "cad_sweep_profile_samples", "cad_revolve_axis_json", "hippo_offset_distance", "hippo_xline_length", "hippo_array_count", "hippo_array_dx", "hippo_array_dy", "hippo_array_dz", "hippo_ellipse_rx", "hippo_ellipse_ry", "hippo_polygon_sides", "hippo_polygon_radius", "hippo_fillet_radius", "hippo_trim_tolerance"]:
-        if hasattr(bpy.types.Scene, name):
-            delattr(bpy.types.Scene, name)
 
 
 
@@ -8718,6 +11529,33 @@ def register():
     register_props()
 
     try:
+        bpy.app.timers.register(hippo_occ_points_timer, first_interval=0.12, persistent=True)
+    except Exception:
+        pass
+
+    try:
+        if not hasattr(state, "occ_points_draw_handle"):
+            state.occ_points_draw_handle = None
+        if state.occ_points_draw_handle is None:
+            state.occ_points_draw_handle = bpy.types.SpaceView3D.draw_handler_add(
+                hippo_occ_draw_empty_handles_callback,
+                (),
+                "WINDOW",
+                "POST_VIEW",
+            )
+    except Exception:
+        pass
+
+    try:
+        bpy.app.timers.register(hippo_occ_edit_guard_timer, first_interval=0.25, persistent=True)
+    except Exception:
+        pass
+
+    # Blue OCC edge GPU visualization removed — it was too heavy
+    # for large surfaces (lofts with many faces) and persisted after
+    # hiding geometries. The mesh itself is sufficient display.
+
+    try:
         if state.cplane_draw_handle is None:
             state.cplane_draw_handle = bpy.types.SpaceView3D.draw_handler_add(
                 draw_cplanes_visual_callback,
@@ -8753,6 +11591,10 @@ def register():
     if kc:
         km = kc.keymaps.new(name="3D View", space_type="VIEW_3D")
         kmi = km.keymap_items.new("cad.start_command", type="SLASH", value="PRESS", ctrl=True)
+        kmi.active = True
+        addon_keymaps.append((km, kmi))
+
+        kmi = km.keymap_items.new("cad.occ_toggle_points", type="TAB", value="PRESS")
         kmi.active = True
         addon_keymaps.append((km, kmi))
 
@@ -8794,6 +11636,13 @@ def unregister():
         except Exception:
             pass
         state.cplane_draw_handle = None
+
+    try:
+        if hasattr(state, "occ_points_draw_handle") and state.occ_points_draw_handle is not None:
+            bpy.types.SpaceView3D.draw_handler_remove(state.occ_points_draw_handle, "WINDOW")
+            state.occ_points_draw_handle = None
+    except Exception:
+        pass
 
     unregister_props()
 

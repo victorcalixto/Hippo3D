@@ -1,0 +1,23 @@
+name: Build Native OCCT Core
+
+on:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build python3-dev pybind11-dev libocct-foundation-dev libocct-modeling-algorithms-dev libocct-modeling-data-dev
+      - name: Configure
+        run: cmake -S native -B native/build -G Ninja
+      - name: Build
+        run: cmake --build native/build
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64-hippo-occ-core
+          path: native/build/*.so
