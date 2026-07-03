@@ -20,8 +20,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      - name: Checkout submodules
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -72,8 +74,10 @@ jobs:
     runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      - name: Checkout submodules
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -110,8 +114,10 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      - name: Checkout submodules
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -148,8 +154,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      - name: Checkout submodules
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -238,8 +246,10 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      - name: Checkout submodules
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
 
       - name: Build in FreeBSD VM
         uses: vmactions/freebsd-vm@v1
@@ -277,8 +287,10 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      - name: Checkout submodules
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
 
       - name: Build in OpenBSD VM
         uses: vmactions/openbsd-vm@v1
