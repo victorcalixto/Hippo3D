@@ -12,13 +12,6 @@ on:
 env:
   OCCT_VERSION: "8.0.0"
 
-# Reusable checkout step with submodules
-x-checkout: &checkout
-  uses: actions/checkout@v4
-  with:
-    submodules: recursive
-    fetch-depth: 0
-
 jobs:
   # ========================================================================
   # 1. Linux x64
