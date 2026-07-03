@@ -6,6 +6,7 @@
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepOffsetAPI_MakePipeShell.hxx>
+#include <BRepBuilderAPI_NurbsConvert.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
@@ -29,9 +30,13 @@
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
 #include <gp_Dir.hxx>
+#include <BRepTools.hxx>
 // B-spline surface
 #include <Geom_BSplineSurface.hxx>
 #include <Geom_RectangularTrimmedSurface.hxx>
+#include <Geom_TrimmedCurve.hxx>
+#include <GeomAPI_ProjectPointOnSurf.hxx>
+#include <GeomConvert.hxx>
 #include <NCollection_Array1.hxx>
 #include <NCollection_Array2.hxx>
 
@@ -211,6 +216,8 @@ static Handle(Geom_BSplineSurface) get_first_bspline_surface(int shape_id) {
     if (!has_shape(shape_id))
         throw std::invalid_argument("Shape not found");
     TopoDS_Shape shape = get_shape(shape_id);
+
+    // First pass: already a B-spline surface
     for (TopExp_Explorer exp(shape, TopAbs_FACE); exp.More(); exp.Next()) {
         TopoDS_Face face = TopoDS::Face(exp.Current());
         TopLoc_Location loc;
@@ -224,6 +231,52 @@ static Handle(Geom_BSplineSurface) get_first_bspline_surface(int shape_id) {
                 Handle(Geom_RectangularTrimmedSurface)::DownCast(surf);
             if (!tr.IsNull() && tr->BasisSurface()->IsKind(STANDARD_TYPE(Geom_BSplineSurface)))
                 return Handle(Geom_BSplineSurface)::DownCast(tr->BasisSurface());
+        }
+    }
+
+    // Second pass: use BRepBuilderAPI_NurbsConvert to turn any surface
+    // (cylinder, cone, sphere, revolved, etc.) into a B-spline face.
+    try {
+        BRepBuilderAPI_NurbsConvert nurbsConverter(shape);
+        if (nurbsConverter.IsDone()) {
+            TopoDS_Shape converted = nurbsConverter.Shape();
+            for (TopExp_Explorer exp2(converted, TopAbs_FACE); exp2.More(); exp2.Next()) {
+                TopoDS_Face cface = TopoDS::Face(exp2.Current());
+                TopLoc_Location loc2;
+                Handle(Geom_Surface) csurf = BRep_Tool::Surface(cface, loc2);
+                if (csurf.IsNull()) continue;
+                if (csurf->IsKind(STANDARD_TYPE(Geom_BSplineSurface))) {
+                    return Handle(Geom_BSplineSurface)::DownCast(csurf);
+                }
+                if (csurf->IsKind(STANDARD_TYPE(Geom_RectangularTrimmedSurface))) {
+                    Handle(Geom_RectangularTrimmedSurface) tr =
+                        Handle(Geom_RectangularTrimmedSurface)::DownCast(csurf);
+                    if (!tr.IsNull() && tr->BasisSurface()->IsKind(STANDARD_TYPE(Geom_BSplineSurface)))
+                        return Handle(Geom_BSplineSurface)::DownCast(tr->BasisSurface());
+                }
+            }
+        }
+    } catch (...) {
+        // fall through
+    }
+
+    // Third pass: direct GeomConvert for surfaces it handles (planes, offset, etc.)
+    for (TopExp_Explorer exp(shape, TopAbs_FACE); exp.More(); exp.Next()) {
+        TopoDS_Face face = TopoDS::Face(exp.Current());
+        TopLoc_Location loc;
+        Handle(Geom_Surface) surf = BRep_Tool::Surface(face, loc);
+        if (surf.IsNull()) continue;
+        try {
+            Handle(Geom_Surface) toConvert = surf;
+            if (surf->IsKind(STANDARD_TYPE(Geom_RectangularTrimmedSurface))) {
+                Handle(Geom_RectangularTrimmedSurface) tr =
+                    Handle(Geom_RectangularTrimmedSurface)::DownCast(surf);
+                if (!tr.IsNull()) toConvert = tr->BasisSurface();
+            }
+            Handle(Geom_BSplineSurface) bs = GeomConvert::SurfaceToBSplineSurface(toConvert);
+            if (!bs.IsNull()) return bs;
+        } catch (...) {
+            continue;
         }
     }
     return Handle(Geom_BSplineSurface)();
@@ -335,4 +388,149 @@ int set_bsurf_control_points(int old_shape_id,
     if (!face_builder.IsDone())
         throw std::runtime_error("set_bsurf_control_points: face builder failed");
     return register_shape(face_builder.Face());
+}
+
+// ---------------------------------------------------------------------------
+// Isocurve extraction
+// ---------------------------------------------------------------------------
+#include <GeomAdaptor_Surface.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <Geom_Curve.hxx>
+
+int extract_isocurve_u(int shape_id, double u_param) {
+    if (!has_shape(shape_id))
+        throw std::invalid_argument("extract_isocurve_u: shape id not found");
+    TopoDS_Shape shape = get_shape(shape_id);
+    for (TopExp_Explorer exp(shape, TopAbs_FACE); exp.More(); exp.Next()) {
+        TopoDS_Face face = TopoDS::Face(exp.Current());
+        TopLoc_Location loc;
+        Handle(Geom_Surface) surf = BRep_Tool::Surface(face, loc);
+        if (surf.IsNull()) continue;
+        double u0, u1, v0, v1;
+        BRepTools::UVBounds(face, u0, u1, v0, v1);
+        // Clamp param to face bounds
+        if (u_param < u0) u_param = u0;
+        if (u_param > u1) u_param = u1;
+        Handle(Geom_Curve) c = surf->UIso(u_param);
+        if (c.IsNull()) continue;
+        // Trim to V bounds
+        Handle(Geom_TrimmedCurve) tc = new Geom_TrimmedCurve(c, v0, v1);
+        TopoDS_Edge edge = BRepBuilderAPI_MakeEdge(tc).Edge();
+        TopoDS_Wire wire = BRepBuilderAPI_MakeWire(edge).Wire();
+        return register_shape(wire);
+    }
+    throw std::runtime_error("extract_isocurve_u: no valid face found");
+}
+
+int extract_isocurve_v(int shape_id, double v_param) {
+    if (!has_shape(shape_id))
+        throw std::invalid_argument("extract_isocurve_v: shape id not found");
+    TopoDS_Shape shape = get_shape(shape_id);
+    for (TopExp_Explorer exp(shape, TopAbs_FACE); exp.More(); exp.Next()) {
+        TopoDS_Face face = TopoDS::Face(exp.Current());
+        TopLoc_Location loc;
+        Handle(Geom_Surface) surf = BRep_Tool::Surface(face, loc);
+        if (surf.IsNull()) continue;
+        double u0, u1, v0, v1;
+        BRepTools::UVBounds(face, u0, u1, v0, v1);
+        // Clamp param to face bounds
+        if (v_param < v0) v_param = v0;
+        if (v_param > v1) v_param = v1;
+        Handle(Geom_Curve) c = surf->VIso(v_param);
+        if (c.IsNull()) continue;
+        // Trim to U bounds
+        Handle(Geom_TrimmedCurve) tc = new Geom_TrimmedCurve(c, u0, u1);
+        TopoDS_Edge edge = BRepBuilderAPI_MakeEdge(tc).Edge();
+        TopoDS_Wire wire = BRepBuilderAPI_MakeWire(edge).Wire();
+        return register_shape(wire);
+    }
+    throw std::runtime_error("extract_isocurve_v: no valid face found");
+}
+
+// ---------------------------------------------------------------------------
+// Explode solid/compound/shell into individual faces
+// ---------------------------------------------------------------------------
+std::vector<int> explode_shape_to_faces(int shape_id) {
+    if (!has_shape(shape_id))
+        throw std::invalid_argument("explode_shape_to_faces: shape id not found");
+    TopoDS_Shape shape = get_shape(shape_id);
+    std::vector<int> result;
+    for (TopExp_Explorer exp(shape, TopAbs_FACE); exp.More(); exp.Next()) {
+        TopoDS_Face face = TopoDS::Face(exp.Current());
+        result.push_back(register_shape(face));
+    }
+    return result;
+}
+
+// ---------------------------------------------------------------------------
+// Project a 3D point onto the first face of a shape and return UV + normal.
+// ---------------------------------------------------------------------------
+#include <GeomAPI_ProjectPointOnSurf.hxx>
+
+pybind11::dict project_point_to_surface_uv(int shape_id, const std::array<double, 3>& point) {
+    pybind11::dict result;
+    result["found"] = false;
+    result["u"] = 0.0;
+    result["v"] = 0.0;
+    result["distance"] = -1.0;
+    result["point"] = pybind11::make_tuple(0.0, 0.0, 0.0);
+    result["normal"] = pybind11::make_tuple(0.0, 0.0, 1.0);
+
+    if (!has_shape(shape_id))
+        return result;
+    TopoDS_Shape shape = get_shape(shape_id);
+    for (TopExp_Explorer exp(shape, TopAbs_FACE); exp.More(); exp.Next()) {
+        TopoDS_Face face = TopoDS::Face(exp.Current());
+        TopLoc_Location loc;
+        Handle(Geom_Surface) surf = BRep_Tool::Surface(face, loc);
+        if (surf.IsNull()) continue;
+        double u0, u1, v0, v1;
+        BRepTools::UVBounds(face, u0, u1, v0, v1);
+        gp_Pnt gp(point[0], point[1], point[2]);
+        GeomAPI_ProjectPointOnSurf projector(gp, surf, u0, u1, v0, v1);
+        if (projector.NbPoints() == 0) continue;
+        double u, v;
+        projector.LowerDistanceParameters(u, v);
+        gp_Pnt proj = projector.NearestPoint();
+        gp_Vec du, dv;
+        surf->D1(u, v, proj, du, dv);
+        gp_Vec n = du.Crossed(dv);
+        if (n.Magnitude() < 1e-12) n = gp_Vec(0, 0, 1);
+        else n.Normalize();
+        result["found"] = true;
+        result["u"] = u;
+        result["v"] = v;
+        result["distance"] = projector.LowerDistance();
+        result["point"] = pybind11::make_tuple(proj.X(), proj.Y(), proj.Z());
+        result["normal"] = pybind11::make_tuple(n.X(), n.Y(), n.Z());
+        return result;
+    }
+    return result;
+}
+
+// ---------------------------------------------------------------------------
+// Get param bounds of the first face in a shape.
+// ---------------------------------------------------------------------------
+pybind11::dict get_surface_bounds(int shape_id) {
+    pybind11::dict result;
+    result["found"] = false;
+    result["u0"] = 0.0; result["u1"] = 1.0;
+    result["v0"] = 0.0; result["v1"] = 1.0;
+    if (!has_shape(shape_id))
+        return result;
+    TopoDS_Shape shape = get_shape(shape_id);
+    for (TopExp_Explorer exp(shape, TopAbs_FACE); exp.More(); exp.Next()) {
+        TopoDS_Face face = TopoDS::Face(exp.Current());
+        TopLoc_Location loc;
+        Handle(Geom_Surface) surf = BRep_Tool::Surface(face, loc);
+        if (surf.IsNull()) continue;
+        double u0, u1, v0, v1;
+        BRepTools::UVBounds(face, u0, u1, v0, v1);
+        result["found"] = true;
+        result["u0"] = u0; result["u1"] = u1;
+        result["v0"] = v0; result["v1"] = v1;
+        return result;
+    }
+    return result;
 }

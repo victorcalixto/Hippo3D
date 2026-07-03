@@ -79,3 +79,23 @@ int set_bsurf_control_points(
     int old_shape_id,
     const std::vector<std::array<double, 3>>& poles
 );
+
+// Extract an isocurve at fixed U parameter from the first face of a shape.
+// Returns a shape_id for the curve wire.
+int extract_isocurve_u(int shape_id, double u_param);
+
+// Extract an isocurve at fixed V parameter from the first face of a shape.
+// Returns a shape_id for the curve wire.
+int extract_isocurve_v(int shape_id, double v_param);
+
+// Explode a solid/compound/shell into individual faces.
+// Returns a list of shape_ids, one per face.
+std::vector<int> explode_shape_to_faces(int shape_id);
+
+// Project a 3D point onto the first face of a shape and return UV + normal.
+// Returns dict with {"u", "v", "distance", "point" (x,y,z), "normal" (x,y,z), "found": bool}.
+pybind11::dict project_point_to_surface_uv(int shape_id, const std::array<double, 3>& point);
+
+// Get param bounds of the first face in a shape.
+// Returns dict with {"u0", "u1", "v0", "v1", "found": bool}.
+pybind11::dict get_surface_bounds(int shape_id);

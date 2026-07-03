@@ -39,6 +39,14 @@ int make_full_circle(
     const std::array<double, 3>& normal
 );
 
+// Extract true NURBS curve definition (poles, weights, knots, mults, degree, periodic)
+// from the first edge of a shape. Returns a dict with:
+//   "found" (bool), "degree", "periodic", "rational",
+//   "poles" [(x,y,z), ...], "weights" [w, ...] (if rational),
+//   "knots" [double, ...], "mults" [int, ...]
+// If the edge is not a B-spline, it is converted via GeomConvert.
+py::dict extract_nurbs_curve_data(int shape_id);
+
 // Sample a curve/wire into polylines for display.
 // Returns a Python dict with {"edges": [[(x,y,z), ...], ...]}
 py::dict remesh_curve(int shape_id, double deflection);

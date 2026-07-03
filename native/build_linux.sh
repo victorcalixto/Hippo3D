@@ -35,7 +35,7 @@ cmake -S . -B build -G Ninja \
 
 cmake --build build
 
-MODULE_PATH="$(find build -maxdepth 1 -name 'hippo_occ_core*.so' | head -n 1)"
+MODULE_PATH="$(find build -maxdepth 1 -name 'hippo_occ_core*.so' | sort | tail -n 1)"
 
 if [ -z "$MODULE_PATH" ]; then
     echo "Build finished, but hippo_occ_core*.so was not found in native/build."
@@ -43,7 +43,10 @@ if [ -z "$MODULE_PATH" ]; then
 fi
 
 mkdir -p linux-x64
-cp "$MODULE_PATH" linux-x64/hippo_occ_core.so
+cp "$MODULE_PATH" linux-x64/
+
+# Clean up stale plain-name .so to prevent ABI mismatch
+rm -f linux-x64/hippo_occ_core.so
 
 # ---------------------------------------------------------------------------
 # Auto-bundle OCCT libraries for standalone distribution

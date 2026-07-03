@@ -48,7 +48,7 @@ cmake -S . -B build -G Ninja \
 
 cmake --build build
 
-MODULE_PATH="$(find build -maxdepth 1 -name 'hippo_occ_core*.so' | head -n 1)"
+MODULE_PATH="$(find build -maxdepth 1 -name 'hippo_occ_core*.so' | sort | tail -n 1)"
 
 if [ -z "$MODULE_PATH" ]; then
     echo "Build finished, but hippo_occ_core*.so was not found in native/build."
@@ -56,10 +56,25 @@ if [ -z "$MODULE_PATH" ]; then
 fi
 
 mkdir -p "$PLATFORM_FOLDER"
-cp "$MODULE_PATH" "$PLATFORM_FOLDER/hippo_occ_core.so"
+cp "$MODULE_PATH" "$PLATFORM_FOLDER/"
+
+# Clean up stale plain-name .so to prevent ABI mismatch
+rm -f "$PLATFORM_FOLDER/hippo_occ_core.so"
+
+# ---------------------------------------------------------------------------
+# Auto-bundle OCCT libraries for standalone distribution
+# ---------------------------------------------------------------------------
+BUNDLE_AUTO="${BUNDLE_AUTO:-1}"
+if [ "$BUNDLE_AUTO" = "1" ]; then
+    echo
+    echo "Auto-bundling OCCT shared libraries..."
+    python3 "$SCRIPT_DIR/bundle_occt.py" --platform "$PLATFORM_FOLDER" || echo "Warning: bundle_occt.py failed. Continuing anyway."
+fi
 
 echo
 echo "Build complete."
+echo "Development module:"
+echo "  $MODULE_PATH"
 echo "Extension module:"
 echo "  $SCRIPT_DIR/$PLATFORM_FOLDER/hippo_occ_core.so"
 echo

@@ -9,6 +9,7 @@
 #include "occ_surface_ops.hpp"
 #include "occ_boolean.hpp"
 #include "occ_trim.hpp"
+#include "occ_mesh.hpp"
 
 namespace py = pybind11;
 
@@ -101,6 +102,10 @@ PYBIND11_MODULE(hippo_occ_core, m) {
           py::arg("shape_id"), py::arg("deflection") = 0.1,
           "Sample a curve/wire into polylines for display. Returns dict with {edges: [[(x,y,z), ...], ...]}.");
 
+    m.def("extract_nurbs_curve_data", &extract_nurbs_curve_data,
+          py::arg("shape_id"),
+          "Extract true B-spline curve definition (poles, weights, knots, mults, degree).");
+
     // Surface Operations
     m.def("occ_loft", &occ_loft,
           py::arg("wire_shape_ids"), py::arg("closed") = false, py::arg("solid") = false,
@@ -160,4 +165,36 @@ PYBIND11_MODULE(hippo_occ_core, m) {
     m.def("set_bsurf_control_points", &set_bsurf_control_points,
           py::arg("old_shape_id"), py::arg("poles"),
           "Rebuild a B-surface from an edited flat pole list. Returns new shape_id.");
+
+    // Isocurve extraction
+    m.def("extract_isocurve_u", &extract_isocurve_u,
+          py::arg("shape_id"), py::arg("u_param"),
+          "Extract a U-isocurve from the first face of a shape. Returns curve shape_id.");
+
+    m.def("extract_isocurve_v", &extract_isocurve_v,
+          py::arg("shape_id"), py::arg("v_param"),
+          "Extract a V-isocurve from the first face of a shape. Returns curve shape_id.");
+
+    // Explode solid/compound/shell into faces
+    m.def("explode_shape_to_faces", &explode_shape_to_faces,
+          py::arg("shape_id"),
+          "Explode a solid/compound/shell into individual faces. Returns list of shape_ids.");
+
+    // Surface UV projection / bounds
+    m.def("project_point_to_surface_uv", &project_point_to_surface_uv,
+          py::arg("shape_id"), py::arg("point"),
+          "Project a 3D point onto the first face and return UV + normal.");
+
+    m.def("get_surface_bounds", &get_surface_bounds,
+          py::arg("shape_id"),
+          "Get param bounds (u0,u1,v0,v1) of the first face.");
+
+    // Mesh / Shape conversion
+    m.def("make_shape_from_mesh", &make_shape_from_mesh,
+          py::arg("vertices"), py::arg("faces"),
+          "Build an OCC shape from raw mesh vertices and face index lists. Returns shape_id.");
+
+    m.def("make_bspline_surface_from_grid", &make_bspline_surface_from_grid,
+          py::arg("rows"), py::arg("cols"), py::arg("grid_points"),
+          "Fit a B-spline surface through a regular grid of points. Returns shape_id.");
 }
