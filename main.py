@@ -11530,7 +11530,7 @@ def register():
 
     # Register Sverchok integration nodes (only when Sverchok is available)
     try:
-        from .sverchok import register as sverchok_register
+        from .sv_integration import register as sverchok_register
         sverchok_register()
     except Exception:
         pass

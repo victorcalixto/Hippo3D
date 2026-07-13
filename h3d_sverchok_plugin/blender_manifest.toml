@@ -1,0 +1,23 @@
+schema_version = "1.0.0"
+
+id = "h3d_sverchok_plugin"
+version = "0.1.0"
+
+name = "Hippo3D Sverchok Nodes"
+
+tagline = "Hippo3D nodes for the Sverchok node tree"
+
+maintainer = "Victor Calixto"
+
+type = "add-on"
+
+blender_version_min = "4.2.0"
+
+license = [
+  "SPDX:GPL-3.0-or-later"
+]
+
+tags = ["Node", "Geometry Nodes", "Sverchok"]
+
+# Optional dependencies: Sverchok must be installed separately
+dependencies = []
