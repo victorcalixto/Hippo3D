@@ -1,12 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Hippo3D Sverchok node definitions.
+"""Hippo3D Sverchok node package.
 
-Node classes are imported here so the parent add-on can register them.
+Each sub-module registers its own node class(es) via register()/unregister().
+The parent __init__.py calls these during add-on enable/disable.
 """
-
-# These imports will raise if sverchok is not installed, which is fine
-# because the parent __init__ catches the error.
-from .get_object import SvHippo3DGetObject
-from .occ_viewer import SvHippo3DOCCViewer
-
-__all__ = ["SvHippo3DGetObject", "SvHippo3DOCCViewer"]

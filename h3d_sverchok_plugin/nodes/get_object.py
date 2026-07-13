@@ -8,13 +8,8 @@ surfaces or Solids solids.
 
 import bpy
 
-SVERCHOK_AVAILABLE = False
-try:
-    from sverchok.node_tree import SverchCustomTreeNode
-    from sverchok.data_structure import updateNode, match_long_repeat
-    SVERCHOK_AVAILABLE = True
-except Exception:
-    SverchCustomTreeNode = object
+from sverchok.node_tree import SverchCustomTreeNode
+from sverchok.data_structure import updateNode, match_long_repeat
 
 from ..dependency_check import SVERCHOK_EXTRA_AVAILABLE, FREECAD_AVAILABLE
 
@@ -73,79 +68,95 @@ def _try_wrap_as_solid(obj):
 # Node definition
 # ---------------------------------------------------------------------------
 
-if SVERCHOK_AVAILABLE:
-    class SvHippo3DGetObject(bpy.types.Node, SverchCustomTreeNode):
-        bl_idname = 'SvHippo3DGetObject'
-        bl_label = 'Hippo3D Get Object'
-        bl_icon = 'MESH_DATA'
+class SvHippo3DGetObject(bpy.types.Node, SverchCustomTreeNode):
+    bl_idname = 'SvHippo3DGetObject'
+    bl_label = 'Hippo3D Get Object'
+    bl_icon = 'MESH_DATA'
 
-        def sv_init(self, context):
-            self.inputs.new('SvStringsSocket', "Objects")
-            self.outputs.new('SvVerticesSocket', "Vertices")
-            self.outputs.new('SvStringsSocket', "Faces")
-            self.outputs.new('SvStringsSocket', "Surfaces")
-            self.outputs.new('SvStringsSocket', "Solids")
+    def sv_init(self, context):
+        self.inputs.new('SvStringsSocket', "Objects")
+        self.outputs.new('SvVerticesSocket', "Vertices")
+        self.outputs.new('SvStringsSocket', "Faces")
+        self.outputs.new('SvStringsSocket', "Surfaces")
+        self.outputs.new('SvStringsSocket', "Solids")
 
-        def process(self):
-            if not self.outputs['Vertices'].is_linked and not self.outputs['Faces'].is_linked \
-                    and not self.outputs['Surfaces'].is_linked and not self.outputs['Solids'].is_linked:
-                return
+    def process(self):
+        if not self.outputs['Vertices'].is_linked and not self.outputs['Faces'].is_linked \
+                and not self.outputs['Surfaces'].is_linked and not self.outputs['Solids'].is_linked:
+            return
 
-            objects_socket = self.inputs['Objects']
-            if not objects_socket.is_linked:
-                return
+        objects_socket = self.inputs['Objects']
+        if not objects_socket.is_linked:
+            return
 
-            object_names_nested = objects_socket.sv_get(deepcopy=False, default=[])
+        object_names_nested = objects_socket.sv_get(deepcopy=False, default=[])
 
-            out_verts = []
-            out_faces = []
-            out_surfaces = []
-            out_solids = []
+        out_verts = []
+        out_faces = []
+        out_surfaces = []
+        out_solids = []
 
-            for object_names in object_names_nested:
-                verts_sub = []
-                faces_sub = []
-                surfaces_sub = []
-                solids_sub = []
+        for object_names in object_names_nested:
+            verts_sub = []
+            faces_sub = []
+            surfaces_sub = []
+            solids_sub = []
 
-                for name in object_names:
-                    if isinstance(name, bpy.types.Object):
-                        obj = name
-                    else:
-                        obj = bpy.data.objects.get(str(name))
+            for name in object_names:
+                if isinstance(name, bpy.types.Object):
+                    obj = name
+                else:
+                    obj = bpy.data.objects.get(str(name))
 
-                    if obj is None:
-                        continue
+                if obj is None:
+                    continue
 
-                    if obj.get("hippo_kernel") != "occ":
-                        continue
+                if obj.get("hippo_kernel") != "occ":
+                    continue
 
-                    mesh = obj.data
-                    if mesh is None or obj.type != "MESH":
-                        continue
+                mesh = obj.data
+                if mesh is None or obj.type != "MESH":
+                    continue
 
-                    local_verts = [tuple(v.co) for v in mesh.vertices]
-                    local_faces = [list(p.vertices) for p in mesh.polygons]
+                local_verts = [tuple(v.co) for v in mesh.vertices]
+                local_faces = [list(p.vertices) for p in mesh.polygons]
 
-                    verts_sub.append(local_verts)
-                    faces_sub.append(local_faces)
+                verts_sub.append(local_verts)
+                faces_sub.append(local_faces)
 
-                    if self.outputs['Surfaces'].is_linked:
-                        surf = _try_wrap_as_surface(obj)
-                        if surf is not None:
-                            surfaces_sub.append(surf)
+                if self.outputs['Surfaces'].is_linked:
+                    surf = _try_wrap_as_surface(obj)
+                    if surf is not None:
+                        surfaces_sub.append(surf)
 
-                    if self.outputs['Solids'].is_linked:
-                        solid = _try_wrap_as_solid(obj)
-                        if solid is not None:
-                            solids_sub.append(solid)
+                if self.outputs['Solids'].is_linked:
+                    solid = _try_wrap_as_solid(obj)
+                    if solid is not None:
+                        solids_sub.append(solid)
 
-                out_verts.append(verts_sub)
-                out_faces.append(faces_sub)
-                out_surfaces.append(surfaces_sub)
-                out_solids.append(solids_sub)
+            out_verts.append(verts_sub)
+            out_faces.append(faces_sub)
+            out_surfaces.append(surfaces_sub)
+            out_solids.append(solids_sub)
 
-            self.outputs['Vertices'].sv_set(out_verts)
-            self.outputs['Faces'].sv_set(out_faces)
-            self.outputs['Surfaces'].sv_set(out_surfaces)
-            self.outputs['Solids'].sv_set(out_solids)
+        self.outputs['Vertices'].sv_set(out_verts)
+        self.outputs['Faces'].sv_set(out_faces)
+        self.outputs['Surfaces'].sv_set(out_surfaces)
+        self.outputs['Solids'].sv_set(out_solids)
+
+
+# ---------------------------------------------------------------------------
+# Module registration
+# ---------------------------------------------------------------------------
+
+classes = [SvHippo3DGetObject]
+
+
+def register():
+    for cls in classes:
+        bpy.utils.register_class(cls)
+
+
+def unregister():
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
