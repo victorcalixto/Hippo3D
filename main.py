@@ -11528,6 +11528,13 @@ def register():
 
     register_props()
 
+    # Register Sverchok integration nodes (only when Sverchok is available)
+    try:
+        from .sverchok import register as sverchok_register
+        sverchok_register()
+    except Exception:
+        pass
+
     try:
         bpy.app.timers.register(hippo_occ_points_timer, first_interval=0.12, persistent=True)
     except Exception:
@@ -11645,6 +11652,13 @@ def unregister():
         pass
 
     unregister_props()
+
+    # Unregister Sverchok integration nodes (only when Sverchok is available)
+    try:
+        from .sverchok import unregister as sverchok_unregister
+        sverchok_unregister()
+    except Exception:
+        pass
 
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

@@ -17,4 +17,4 @@ license = [
   "SPDX:GPL-3.0-or-later"
 ]
 
-tags = ["3D View", "Modeling", "Mesh"]
+tags = ["3D View", "Modeling", "Mesh", "Geometry Nodes"]
