@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <TopoDS_Shape.hxx>
 
 int register_shape(const TopoDS_Shape& shape);
@@ -10,3 +11,4 @@ void clear_registry();
 int transform_shape(int shape_id, const std::array<double, 16>& matrix);
 void delete_shape(int shape_id);
 int copy_shape(int shape_id);
+std::string get_shape_type(int shape_id);

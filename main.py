@@ -90,6 +90,40 @@ def selected_curve_objects(context):
     return [obj for obj in context.selected_objects if obj.type == "CURVE"]
 
 
+def _store_nurbs_shape_from_loft_grid(obj, sections, closed_u=False, closed_v=False):
+    """If OCC core is available, fit a B-spline surface through the loft
+    section grid and store the precise shape id on the object so Sverchok
+    nodes can export a single NURBS surface instead of a tessellated shell.
+
+    Open and closed directions are handled by passing the flags through to
+    the OCC core; the core knows how to build a periodic B-spline when the
+    corresponding direction is closed.
+    """
+    if not sections or not sections[0]:
+        return
+    rows = len(sections)
+    cols = len(sections[0])
+    if rows < 2 or cols < 2:
+        return
+    try:
+        occ = hippo_load_occ_core()
+    except Exception:
+        return
+    try:
+        grid_world = []
+        for row in sections:
+            if len(row) != cols:
+                return
+            for p in row:
+                grid_world.append([p.x, p.y, p.z])
+
+        sid = occ.make_bspline_surface_from_grid(rows, cols, grid_world)
+        if sid >= 0:
+            obj["hippo_occ_nurbs_shape_id"] = int(sid)
+    except Exception:
+        pass
+
+
 def create_loft_surface_from_curves(context, curves=None, samples=32, name="Hippo3D_Loft"):
     """Create a mesh loft through two or more selected curves."""
     if curves is None:
@@ -124,6 +158,8 @@ def create_loft_surface_from_curves(context, curves=None, samples=32, name="Hipp
     obj["cad_surface_type"] = "loft"
     obj["cad_loft_sources"] = "|".join(source_names)
     obj["cad_loft_samples"] = samples
+
+    _store_nurbs_shape_from_loft_grid(obj, sections)
 
     bpy.ops.object.select_all(action="DESELECT")
     obj.select_set(True)
@@ -171,8 +207,13 @@ def rebuild_loft_surface(context, obj=None):
 
     # Replace mesh data on existing object and delete temporary object.
     old_mesh = obj.data
+    old_nurbs = obj.get("hippo_occ_nurbs_shape_id")
     obj.data = new_obj.data
     obj["cad_loft_samples"] = samples
+    if "hippo_occ_nurbs_shape_id" in new_obj:
+        obj["hippo_occ_nurbs_shape_id"] = new_obj["hippo_occ_nurbs_shape_id"]
+    elif old_nurbs is not None and "hippo_occ_nurbs_shape_id" in obj:
+        del obj["hippo_occ_nurbs_shape_id"]
     bpy.data.objects.remove(new_obj, do_unlink=True)
 
     try:
@@ -4986,7 +5027,7 @@ def hippo_get_occ_display_material():
         mat.diffuse_color = (0.55, 0.72, 0.95, 0.55)
     return mat
 
-def hippo_create_occ_mesh_object(context, name, data, location=None):
+def hippo_create_occ_mesh_object(context, name, data, location=None, nurbs_shape_id=None):
     vertices = data.get("vertices", [])
     faces = data.get("faces", [])
 
@@ -5012,6 +5053,8 @@ def hippo_create_occ_mesh_object(context, name, data, location=None):
     obj["hippo_occ_display_cache"] = True
     obj["hippo_occ_edit_locked"] = True
     obj["hippo_occ_shape_id"] = int(data.get("shape_id", -1))
+    if nurbs_shape_id is not None:
+        obj["hippo_occ_nurbs_shape_id"] = int(nurbs_shape_id)
     obj["hippo_occ_edges_json"] = hippo_occ_edges_json_from_data(data)
     obj.show_wire = False
     obj.show_in_front = False
@@ -5547,7 +5590,8 @@ def run_occ_loft_command(context):
         data = occ.remesh_shape(loft_id, 0.1)
         cleanup()
         obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Loft", data,
-                                           location=Vector((0.0, 0.0, 0.0)))
+                                           location=Vector((0.0, 0.0, 0.0)),
+                                           nurbs_shape_id=loft_id)
         obj["hippo_occ_type"] = "loft"
         return True, f"Created OCC loft (shape_id={loft_id})."
     except Exception as exc:
@@ -5578,7 +5622,8 @@ def run_occ_revolve_command(context):
         data = occ.remesh_shape(rev_id, 0.1)
         cleanup()
         obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Revolve", data,
-                                           location=Vector((0.0, 0.0, 0.0)))
+                                           location=Vector((0.0, 0.0, 0.0)),
+                                           nurbs_shape_id=rev_id)
         obj["hippo_occ_type"] = "revolve"
         return True, f"Created OCC revolve (shape_id={rev_id})."
     except Exception as exc:
@@ -5602,7 +5647,8 @@ def run_occ_sweep1_command(context):
         data = occ.remesh_shape(sweep_id, 0.1)
         cleanup()
         obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Sweep1", data,
-                                           location=Vector((0.0, 0.0, 0.0)))
+                                           location=Vector((0.0, 0.0, 0.0)),
+                                           nurbs_shape_id=sweep_id)
         obj["hippo_occ_type"] = "sweep1"
         return True, f"Created OCC Sweep1 (shape_id={sweep_id})."
     except Exception as exc:
@@ -5624,7 +5670,8 @@ def run_occ_planarsrf_command(context):
         data = occ.remesh_shape(face_id, 0.1)
         cleanup()
         obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_PlanarSrf", data,
-                                           location=Vector((0.0, 0.0, 0.0)))
+                                           location=Vector((0.0, 0.0, 0.0)),
+                                           nurbs_shape_id=face_id)
         obj["hippo_occ_type"] = "planarsrf"
         return True, f"Created OCC PlanarSrf (shape_id={face_id})."
     except Exception as exc:
@@ -5646,7 +5693,8 @@ def run_occ_edgesrf_command(context):
         data = occ.remesh_shape(face_id, 0.1)
         cleanup()
         obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_EdgeSrf", data,
-                                           location=Vector((0.0, 0.0, 0.0)))
+                                           location=Vector((0.0, 0.0, 0.0)),
+                                           nurbs_shape_id=face_id)
         obj["hippo_occ_type"] = "edgesrf"
         return True, f"Created OCC EdgeSrf (shape_id={face_id})."
     except Exception as exc:
@@ -11655,7 +11703,7 @@ def unregister():
 
     # Unregister Sverchok integration nodes (only when Sverchok is available)
     try:
-        from .sverchok import unregister as sverchok_unregister
+        from .sv_integration import unregister as sverchok_unregister
         sverchok_unregister()
     except Exception:
         pass

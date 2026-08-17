@@ -1,0 +1,6 @@
+# Hippo3D Sverchok menu configuration for sverchok.ui.nodeview_space_menu
+# Parsed by append_from_config()
+
+- Hippo3D:
+    - SvHippo3DGetObject
+    - SvHippo3DOCCViewer

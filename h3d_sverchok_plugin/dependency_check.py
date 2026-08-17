@@ -1,9 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Dependency checking for Hippo3D Sverchok plugin.
 
-Checks whether Sverchok core, Sverchok Extra, and FreeCAD are available.
-This module intentionally does NOT check for Hippo3D OCC core because
-this plugin is meant to be installable independently.
+Checks whether Sverchok core, Sverchok Extra, FreeCAD and Hippo3D OCC core
+are available.
 """
 
 import importlib.util
@@ -39,3 +38,39 @@ elif _has_module("Part"):
         FREECAD_AVAILABLE = True
     except Exception:
         pass
+
+# Hippo3D native OCC core
+HIPPO3D_OCC_AVAILABLE = False
+try:
+    from ...kernels.occ_loader import load_occ_core
+    _occ = load_occ_core()
+    HIPPO3D_OCC_AVAILABLE = True
+except Exception:
+    pass
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def sverchok_surface_type():
+    """Return the Sverchok Extra Surface class if available."""
+    if not SVERCHOK_EXTRA_AVAILABLE:
+        return None
+    try:
+        from sverchok_extra.utils.surface import SvSurface as SurfaceType
+        return SurfaceType
+    except Exception:
+        return None
+
+
+def sverchok_solid_type():
+    """Return the Solids solid type if available."""
+    if not FREECAD_AVAILABLE:
+        return None
+    try:
+        import Part
+        return Part.Shape
+    except Exception:
+        return None

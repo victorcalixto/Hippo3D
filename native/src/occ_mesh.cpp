@@ -222,7 +222,7 @@ static bool is_quad_face(const std::vector<int>& face) {
 }
 
 int make_bspline_surface_from_grid(int rows, int cols,
-                                   const std::vector<std::array<double, 3>>& grid_points) {
+                                    const std::vector<std::array<double, 3>>& grid_points) {
     if (rows < 2 || cols < 2 || static_cast<int>(grid_points.size()) != rows * cols) {
         return -1;
     }
@@ -235,14 +235,9 @@ int make_bspline_surface_from_grid(int rows, int cols,
         }
     }
 
-    // Try fitting a B-spline surface through the grid points.
-    // We use a simplified approach: interpolate through the grid points.
-    // For a true interpolation we would use GeomAPI_PointsToBSplineSurface
-    // with degree control.
     try {
-        Handle(Geom_Surface) surf;
-
-        // First try a simple plane check for flat grids
+        // Check for a planar grid first and, if so, build an exact plane-based
+        // B-spline surface.
         BRepBuilderAPI_FindPlane plane_finder;
         {
             TopoDS_Vertex v1 = BRepBuilderAPI_MakeVertex(points.Value(1, 1)).Vertex();
@@ -255,30 +250,29 @@ int make_bspline_surface_from_grid(int rows, int cols,
             plane_finder.Init(wire_maker.Wire());
         }
         if (plane_finder.Found()) {
-            // Plane-based surface: fit a plane through the points
             Handle(Geom_Plane) plane = plane_finder.Plane();
             if (!plane.IsNull()) {
-                // Use a simple B-spline surface of degree 1 in both directions
-                // This is a planar surface
-                TColgp_Array2OfPnt poles(1, 2, 1, 2);
-                poles.SetValue(1, 1, points.Value(1, 1));
-                poles.SetValue(1, 2, points.Value(1, cols));
-                poles.SetValue(2, 1, points.Value(rows, 1));
-                poles.SetValue(2, 2, points.Value(rows, cols));
+                // For a planar grid keep the full control-point grid so the
+                // resulting B-spline matches the mesh resolution and is not
+                // collapsed to a 2x2 corner approximation.
+                TColgp_Array2OfPnt poles(1, rows, 1, cols);
+                for (int i = 0; i < rows; ++i)
+                    for (int j = 0; j < cols; ++j)
+                        poles.SetValue(i + 1, j + 1, points.Value(i + 1, j + 1));
 
-                TColStd_Array1OfReal uknots(1, 2);
-                uknots.SetValue(1, 0.0);
-                uknots.SetValue(2, 1.0);
-                TColStd_Array1OfReal vknots(1, 2);
-                vknots.SetValue(1, 0.0);
-                vknots.SetValue(2, 1.0);
-
-                TColStd_Array1OfInteger umults(1, 2);
-                umults.SetValue(1, 2);
-                umults.SetValue(2, 2);
-                TColStd_Array1OfInteger vmults(1, 2);
-                vmults.SetValue(1, 2);
-                vmults.SetValue(2, 2);
+                // Build clamped knot vectors with uniform internal knots.
+                TColStd_Array1OfReal uknots(1, rows);
+                TColStd_Array1OfInteger umults(1, rows);
+                for (int i = 0; i < rows; ++i) {
+                    uknots.SetValue(i + 1, static_cast<double>(i) / (rows - 1));
+                    umults.SetValue(i + 1, (i == 0 || i == rows - 1) ? 2 : 1);
+                }
+                TColStd_Array1OfReal vknots(1, cols);
+                TColStd_Array1OfInteger vmults(1, cols);
+                for (int j = 0; j < cols; ++j) {
+                    vknots.SetValue(j + 1, static_cast<double>(j) / (cols - 1));
+                    vmults.SetValue(j + 1, (j == 0 || j == cols - 1) ? 2 : 1);
+                }
 
                 Handle(Geom_BSplineSurface) bsurf = new Geom_BSplineSurface(
                     poles, uknots, vknots, umults, vmults, 1, 1,
@@ -291,8 +285,7 @@ int make_bspline_surface_from_grid(int rows, int cols,
             }
         }
 
-        // General case: fit B-spline surface through grid points
-        // Use GeomAPI_PointsToBSplineSurface for approximation
+        // General non-planar case: approximate B-spline surface through grid points.
         GeomAPI_PointsToBSplineSurface fitter(points, 3, 3, GeomAbs_C2, 1e-7);
         if (fitter.IsDone()) {
             Handle(Geom_BSplineSurface) bsurf = fitter.Surface();
@@ -304,10 +297,93 @@ int make_bspline_surface_from_grid(int rows, int cols,
             }
         }
 
-        // Fallback: if fitting failed, create a simple degree-3 surface
-        // through corner and edge midpoints to approximate the shape
-        // This is a last resort for non-planar grids
         return -1;
+    } catch (...) {
+        return -1;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Build an exact B-spline/NURBS surface from full control data.
+// Returns the new shape_id or -1 on failure.
+// ---------------------------------------------------------------------------
+int make_nurbs_surface(int degree_u, int degree_v,
+                       const std::vector<double>& knots_u,
+                       const std::vector<double>& knots_v,
+                       const std::vector<int>& mults_u,
+                       const std::vector<int>& mults_v,
+                       const std::vector<std::array<double, 3>>& poles,
+                       const std::vector<double>& weights,
+                       bool periodic_u, bool periodic_v) {
+    if (degree_u < 1 || degree_v < 1)
+        return -1;
+
+    const int n_u = static_cast<int>(mults_u.size());
+    const int n_v = static_cast<int>(mults_v.size());
+    if (n_u < 2 || n_v < 2)
+        return -1;
+    if (static_cast<int>(knots_u.size()) != n_u || static_cast<int>(knots_v.size()) != n_v)
+        return -1;
+
+    int expected_poles_u = 0, expected_poles_v = 0;
+    for (int m : mults_u) expected_poles_u += m;
+    for (int m : mults_v) expected_poles_v += m;
+    expected_poles_u -= degree_u + 1;
+    expected_poles_v -= degree_v + 1;
+    if (expected_poles_u < 2 || expected_poles_v < 2)
+        return -1;
+
+    const int total_poles = expected_poles_u * expected_poles_v;
+    if (static_cast<int>(poles.size()) != total_poles)
+        return -1;
+
+    const bool rational = !weights.empty();
+    if (rational && static_cast<int>(weights.size()) != total_poles)
+        return -1;
+
+    try {
+        NCollection_Array1<double> uknots(1, n_u);
+        NCollection_Array1<double> vknots(1, n_v);
+        NCollection_Array1<int> umults(1, n_u);
+        NCollection_Array1<int> vmults(1, n_v);
+        for (int i = 0; i < n_u; ++i) {
+            uknots.SetValue(i + 1, knots_u[i]);
+            umults.SetValue(i + 1, mults_u[i]);
+        }
+        for (int j = 0; j < n_v; ++j) {
+            vknots.SetValue(j + 1, knots_v[j]);
+            vmults.SetValue(j + 1, mults_v[j]);
+        }
+
+        NCollection_Array2<gp_Pnt> pole_array(1, expected_poles_u, 1, expected_poles_v);
+        for (int i = 0; i < expected_poles_u; ++i) {
+            for (int j = 0; j < expected_poles_v; ++j) {
+                const auto& p = poles[i * expected_poles_v + j];
+                pole_array.SetValue(i + 1, j + 1, gp_Pnt(p[0], p[1], p[2]));
+            }
+        }
+
+        Handle(Geom_BSplineSurface) bsurf;
+        if (rational) {
+            NCollection_Array2<double> weight_array(1, expected_poles_u, 1, expected_poles_v);
+            for (int i = 0; i < expected_poles_u; ++i) {
+                for (int j = 0; j < expected_poles_v; ++j) {
+                    weight_array.SetValue(i + 1, j + 1, weights[i * expected_poles_v + j]);
+                }
+            }
+            bsurf = new Geom_BSplineSurface(pole_array, weight_array,
+                uknots, vknots, umults, vmults,
+                degree_u, degree_v, periodic_u, periodic_v);
+        } else {
+            bsurf = new Geom_BSplineSurface(pole_array,
+                uknots, vknots, umults, vmults,
+                degree_u, degree_v, periodic_u, periodic_v);
+        }
+
+        BRepBuilderAPI_MakeFace face_builder(bsurf, 1e-7);
+        if (!face_builder.IsDone())
+            return -1;
+        return register_shape(face_builder.Face());
     } catch (...) {
         return -1;
     }

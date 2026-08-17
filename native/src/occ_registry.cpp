@@ -3,10 +3,12 @@
 #include <array>
 #include <map>
 #include <stdexcept>
+#include <string>
 
 #include <BRepBuilderAPI_Transform.hxx>
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
+#include <TopAbs.hxx>
 
 static std::map<int, TopoDS_Shape> g_shapes;
 static int g_next_shape_id = 1;
@@ -64,4 +66,22 @@ int transform_shape(int shape_id, const std::array<double, 16>& matrix) {
         return shape_id;
     }
     return register_shape(transform.Shape());
+}
+
+std::string get_shape_type(int shape_id) {
+    const TopoDS_Shape shape = get_shape(shape_id);
+    if (shape.IsNull()) {
+        return "null";
+    }
+    switch (shape.ShapeType()) {
+        case TopAbs_COMPOUND:   return "compound";
+        case TopAbs_COMPSOLID:  return "compsolid";
+        case TopAbs_SOLID:      return "solid";
+        case TopAbs_SHELL:      return "shell";
+        case TopAbs_FACE:       return "face";
+        case TopAbs_WIRE:       return "wire";
+        case TopAbs_EDGE:       return "edge";
+        case TopAbs_VERTEX:     return "vertex";
+        default:                return "shape";
+    }
 }

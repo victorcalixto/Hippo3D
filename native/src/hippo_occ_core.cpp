@@ -80,6 +80,9 @@ PYBIND11_MODULE(hippo_occ_core, m) {
     m.def("has_shape", &has_shape,
           py::arg("shape_id"),
           "Check if a shape ID is still present in the registry.");
+    m.def("get_shape_type", &get_shape_type,
+          py::arg("shape_id"),
+          "Return OCC topology type of the shape (solid, shell, face, etc.).");
 
     // Curves / Wires
     m.def("make_polyline_wire", &make_polyline_wire,
@@ -197,4 +200,13 @@ PYBIND11_MODULE(hippo_occ_core, m) {
     m.def("make_bspline_surface_from_grid", &make_bspline_surface_from_grid,
           py::arg("rows"), py::arg("cols"), py::arg("grid_points"),
           "Fit a B-spline surface through a regular grid of points. Returns shape_id.");
+
+    m.def("make_nurbs_surface", &make_nurbs_surface,
+          py::arg("degree_u"), py::arg("degree_v"),
+          py::arg("knots_u"), py::arg("knots_v"),
+          py::arg("mults_u"), py::arg("mults_v"),
+          py::arg("poles"), py::arg("weights"),
+          py::arg("periodic_u"), py::arg("periodic_v"),
+          "Build an exact B-spline/NURBS surface from control points, knots, "
+          "multiplicities and optional weights. Returns shape_id.");
 }

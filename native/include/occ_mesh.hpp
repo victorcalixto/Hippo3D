@@ -11,4 +11,13 @@ int make_shape_from_mesh(const std::vector<std::array<double, 3>>& vertices,
                          const std::vector<std::vector<int>>& faces);
 
 int make_bspline_surface_from_grid(int rows, int cols,
-                                   const std::vector<std::array<double, 3>>& grid_points);
+                                    const std::vector<std::array<double, 3>>& grid_points);
+
+int make_nurbs_surface(int degree_u, int degree_v,
+                       const std::vector<double>& knots_u,
+                       const std::vector<double>& knots_v,
+                       const std::vector<int>& mults_u,
+                       const std::vector<int>& mults_v,
+                       const std::vector<std::array<double, 3>>& poles,
+                       const std::vector<double>& weights,
+                       bool periodic_u, bool periodic_v);
