@@ -5748,15 +5748,21 @@ def _occ_selected_shape_ids_from_any(context, occ, min_count=1, max_count=None):
     return ids, None
 
 
-def _occ_selected_shape_ids_from_any_world(context, occ, min_count=1, max_count=None):
+def _occ_selected_shape_ids_from_any_world(context, occ, min_count=1, max_count=None, debug_reasons=None):
     """Like _occ_selected_shape_ids_from_any, but OCC objects are baked into
     world-space shapes (new registry entries). Returns (ids, cleanup_fn)."""
     ids = []
     temp_ids = []
+    if debug_reasons is None:
+        debug_reasons = []
     for obj in context.selected_objects:
         if obj.get("hippo_kernel") == "occ":
             sid = int(obj.get("hippo_occ_shape_id", -1))
-            if sid < 0 or not occ.has_shape(sid):
+            if sid < 0:
+                debug_reasons.append(f"'{obj.name}': hippo_occ_shape_id missing")
+                continue
+            if not occ.has_shape(sid):
+                debug_reasons.append(f"'{obj.name}': shape {sid} not in OCC registry")
                 continue
             mw = obj.matrix_world
             mat = [
@@ -5771,9 +5777,11 @@ def _occ_selected_shape_ids_from_any_world(context, occ, min_count=1, max_count=
         elif obj.type == "CURVE":
             tid, err = _occ_blender_curve_to_wire(obj, occ)
             if err:
-                # can't return error here easily; just skip
+                debug_reasons.append(f"'{obj.name}': curve conversion failed ({err})")
                 continue
             ids.append(tid)
+        else:
+            debug_reasons.append(f"'{obj.name}': skipped (kernel={obj.get('hippo_kernel')}, type={obj.type})")
     if len(ids) < min_count:
         for tid in temp_ids:
             try:
@@ -6329,9 +6337,11 @@ def _run_occ_export_serpentine_command(context, cmd):
     except Exception as exc:
         return False, f"OCC core not available: {exc}"
 
-    ids, cleanup, err = _occ_selected_shape_ids_from_any_world(context, occ, min_count=1)
+    reasons = []
+    ids, cleanup, err = _occ_selected_shape_ids_from_any_world(context, occ, min_count=1, debug_reasons=reasons)
     if err:
-        return False, err
+        detail = "; ".join(reasons) if reasons else "no selection recognised"
+        return False, f"{err} (details: {detail})"
 
     parts = cmd.strip().split(maxsplit=1)
     filepath = parts[1] if len(parts) > 1 else None
