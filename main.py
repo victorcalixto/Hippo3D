@@ -5750,19 +5750,29 @@ def _occ_selected_shape_ids_from_any(context, occ, min_count=1, max_count=None):
 
 def _occ_selected_shape_ids_from_any_world(context, occ, min_count=1, max_count=None, debug_reasons=None):
     """Like _occ_selected_shape_ids_from_any, but OCC objects are baked into
-    world-space shapes (new registry entries). Returns (ids, cleanup_fn)."""
+    world-space shapes (new registry entries). Returns (ids, cleanup_fn).
+
+    For editable surfaces the real BRep is often stored in
+    hippo_occ_nurbs_shape_id, while hippo_occ_shape_id holds the triangulated
+    preview. Prefer the nurbs id when it exists."""
     ids = []
     temp_ids = []
     if debug_reasons is None:
         debug_reasons = []
     for obj in context.selected_objects:
         if obj.get("hippo_kernel") == "occ":
-            sid = int(obj.get("hippo_occ_shape_id", -1))
+            # Surfaces store the editable BRep in hippo_occ_nurbs_shape_id;
+            # hippo_occ_shape_id is usually just the preview mesh.
+            sid = int(obj.get("hippo_occ_nurbs_shape_id", -1))
+            sid_source = "hippo_occ_nurbs_shape_id"
             if sid < 0:
-                debug_reasons.append(f"'{obj.name}': hippo_occ_shape_id missing")
+                sid = int(obj.get("hippo_occ_shape_id", -1))
+                sid_source = "hippo_occ_shape_id"
+            if sid < 0:
+                debug_reasons.append(f"'{obj.name}': no OCC shape id found")
                 continue
             if not occ.has_shape(sid):
-                debug_reasons.append(f"'{obj.name}': shape {sid} not in OCC registry")
+                debug_reasons.append(f"'{obj.name}': {sid_source}={sid} not in OCC registry")
                 continue
             mw = obj.matrix_world
             mat = [
