@@ -7,6 +7,10 @@ from .cplanes import *
 from .cplanes import _builtin_cplane_axes
 from .geometry import *
 import json
+import os
+import shutil
+import subprocess
+import tempfile
 
 # -----------------------------------------------------------------------------
 # Surface helpers - Phase 2
@@ -472,6 +476,12 @@ def run_simple_cad_command(context, cmd):
     if parts and parts[0] in {"3dmin", "3dm_in", "import3dm", "import_3dm"}:
         return _run_occ_import_3dm_command(context, raw)
 
+    if parts and parts[0] in {"serpout", "serp_out", "exportserp", "export_serp"}:
+        return _run_occ_export_serpentine_command(context, raw)
+
+    if parts and parts[0] in {"serpin", "serp_in", "importserp", "import_serp"}:
+        return _run_occ_import_serpentine_command(context, raw)
+
     if compact in {"occtomesh", "occ_to_mesh", "occmeshout", "occmesh"}:
         return run_occ_to_mesh_command(context)
 
@@ -777,6 +787,65 @@ def resolve_snap(context, event, raw_point):
     return raw_point, ""
 
 
+def command_suggestions(prefix, max_results=5):
+    """Return matching Hippo3D command names/aliases for autocomplete."""
+    if not prefix:
+        return []
+    prefix = prefix.strip().lower()
+
+    known = {
+        "line", "l",
+        "polyline", "pline", "pl",
+        "rectangle", "rect",
+        "circle", "c",
+        "arc",
+        "ellipse", "ell",
+        "polygon", "poly", "ngon",
+        "xline", "constructionline", "infiniteline",
+        "nurbs", "nurbscurve", "curve", "crv",
+        "offset", "trim", "explode", "join", "j",
+        "project", "projecttocplane",
+        "mesh", "tomesh", "convertmesh", "converttomesh", "ctm",
+        "setdegree", "degree", "rebuild", "rebuilddegree",
+        "loft", "loftsrf", "surface", "srf",
+        "loftmodifier", "loftmod", "gnloft", "geometrynodesloft",
+        "extrude", "extrudecrv", "extrudesrf", "extrudecurve",
+        "pipe", "pipecrv",
+        "revolve", "rev", "revolvesrf",
+        "setrevolveaxis", "revaxis", "setrevaxis",
+        "clearrevolveaxis", "clearrevaxis",
+        "planarsrf", "planesrf", "planarsurface", "surfacefromplanarcurves",
+        "edgesrf", "edgesurface", "srfedge", "surfacefromedges",
+        "box", "sphere", "cylinder", "cone", "torus",
+        "occbox", "occsphere", "occcylinder", "occcone", "occtorus",
+        "occloft", "occrevolve", "occsweep1", "occplanarsrf", "occedgesrf",
+        "occbooleanfuse", "occunion", "occbooleancut", "occdifference",
+        "occbooleancommon", "occcommon", "occintersection",
+        "occsplit", "occrebuild",
+        "occtomesh", "occmesh", "meshtoocc", "mesh_to_occ",
+        "optimizetogrid", "optimize_to_grid", "gridify",
+        "extractisocurves", "isocurves", "extractiso",
+        "interactiveiso", "iso_interactive", "isocurveinteractive",
+        "explodeocc", "explode_occ", "occexplode",
+        "occtonurbs", "occ_to_nurbs", "occnurbs",
+        "occshowsources", "show_sources",
+        "stepout", "step_out", "exportstep", "export_step",
+        "stepin", "step_in", "importstep", "import_step",
+        "3dmout", "3dm_out", "export3dm", "export_3dm",
+        "3dmin", "3dm_in", "import3dm", "import_3dm",
+        "serpout", "serp_out", "exportserp", "export_serp",
+        "serpin", "serp_in", "importserp", "import_serp",
+        "pointson", "points_on", "pointsoff", "points_off",
+        "cplane",
+        "cameratocplane", "viewtocplane",
+        "array", "ortho", "f8", "help", "commands", "?",
+        "hippo_native_status",
+    }
+
+    matches = [cmd for cmd in sorted(known) if cmd.startswith(prefix) and cmd != prefix]
+    return matches[:max_results]
+
+
 def command_label():
     if getattr(state, "occ_primitive", ""):
         index = len(getattr(state, "occ_values", []))
@@ -789,7 +858,10 @@ def command_label():
             return f"Hippo3D[{active_cplane_label(bpy.context)}]> {state.command} | {prompts[index]} <{default}> (click or type): {state.input_text}"
     if state.command:
         return f"Hippo3D[{active_cplane_label(bpy.context)}]> {state.command} {state.input_text}"
-    return f"Hippo3D[{active_cplane_label(bpy.context)}]> {state.input_text}"
+
+    suggestions = command_suggestions(state.input_text)
+    suffix = f"  | suggestions: {', '.join(suggestions)}" if suggestions else ""
+    return f"Hippo3D[{active_cplane_label(bpy.context)}]> {state.input_text}{suffix}"
 
 
 def finish_command(context):
@@ -1096,19 +1168,22 @@ def draw_text_callback():
     font_id = 0
     label = command_label()
     snap = f"Snap: {state.snap_label}" if state.snap_label else "Snap: none"
-    hint = "Enter = confirm    Esc = cancel    Ctrl+/ = command    F8 = Ortho    @x,y,z = relative"
+    hint = "Enter = confirm    Esc = cancel    Ctrl+/ = command    ? = help    Tab = autocomplete    F8 = Ortho    @x,y,z = relative"
 
-    blf.position(font_id, 24, 82, 0)
+    # Left padding so Hippo3D toolbar does not overlap the text and tooltips.
+    left_pad = 86
+
+    blf.position(font_id, left_pad, 82, 0)
     blf.size(font_id, 18)
     blf.color(font_id, 1.0, 1.0, 0.2, 1.0)
     blf.draw(font_id, label)
 
-    blf.position(font_id, 24, 58, 0)
+    blf.position(font_id, left_pad, 58, 0)
     blf.size(font_id, 13)
     blf.color(font_id, 1.0, 0.55, 0.25, 1.0)
     blf.draw(font_id, snap)
 
-    blf.position(font_id, 24, 34, 0)
+    blf.position(font_id, left_pad, 34, 0)
     blf.size(font_id, 12)
     blf.color(font_id, 0.85, 0.85, 0.85, 1.0)
     blf.draw(font_id, hint)
@@ -1566,6 +1641,11 @@ class Hippo3D_OT_Command(Operator):
                 self.start_nurbs(context, degree)
                 return
 
+            if cmd in {"help", "commands", "?"}:
+                bpy.ops.cad.hippo3d_help("INVOKE_DEFAULT")
+                context.workspace.status_text_set(command_label())
+                return
+
             if cmd in {"ortho", "f8"}:
                 context.scene.cad_ortho = not context.scene.cad_ortho
                 self.report({"INFO"}, f"Ortho {'On' if context.scene.cad_ortho else 'Off'}")
@@ -1772,9 +1852,25 @@ class Hippo3D_OT_Command(Operator):
             context.workspace.status_text_set(command_label())
             return {"RUNNING_MODAL"}
 
+        # Tab autocomplete when there is text but no active command yet.
+        if event.type == "TAB" and event.value == "PRESS" and not state.command:
+            suggestions = command_suggestions(state.input_text)
+            if suggestions:
+                state.input_text = suggestions[0]
+                context.workspace.status_text_set(command_label())
+            return {"RUNNING_MODAL"}
+
         if event.value == "PRESS" and event.ascii:
+            if event.ascii == "?":
+                bpy.ops.cad.hippo3d_help("INVOKE_DEFAULT")
+                return {"RUNNING_MODAL"}
             state.input_text += event.ascii
             context.workspace.status_text_set(command_label())
+            return {"RUNNING_MODAL"}
+
+        # Non-ASCII ? key fallback (some keyboards/layouts report it this way)
+        if event.type == "QUESTION" and event.value == "PRESS":
+            bpy.ops.cad.hippo3d_help("INVOKE_DEFAULT")
             return {"RUNNING_MODAL"}
 
         return {"RUNNING_MODAL"}
@@ -2045,8 +2141,8 @@ def selected_cplane_item(context):
 
 
 
-class Hippo3D_UL_CPlaneList(UIList):
-    bl_idname = "Hippo3D_UL_cplane_list"
+class HIPPO3D_UL_CPlaneList(UIList):
+    bl_idname = "HIPPO3D_UL_cplane_list"
 
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
         row = layout.row(align=True)
@@ -2397,6 +2493,142 @@ class Hippo3D_OT_Hippo3D_Loft(Operator):
         ok, msg = run_loft_command(context)
         self.report({"INFO" if ok else "WARNING"}, msg)
         return {"FINISHED"}
+
+
+class Hippo3D_OT_Help(Operator):
+    bl_idname = "cad.hippo3d_help"
+    bl_label = "Hippo3D Help"
+    bl_description = "Display a list of available Hippo3D commands and aliases."
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        context.window_manager.popover(self.draw_help, ui_units_x=36)
+        return {"FINISHED"}
+
+    def draw_help(self, popup, context):
+        layout = popup.layout
+        layout.label(text="Hippo3D Command Reference", icon="HELP")
+        layout.separator()
+        layout.label(text="Open the command line with Ctrl+/ (or cad.start_command).")
+        layout.label(text="Type a command and press Enter. Esc finishes point commands.")
+        layout.label(text="Coordinates: x,y,z or @x,y,z relative to the last point.")
+        layout.separator()
+
+        categories = hippo3d_command_help_categories()
+        box = layout.box()
+        for title, items in categories:
+            col = box.column(align=True)
+            row = col.row()
+            row.alignment = "LEFT"
+            row.label(text=title.upper(), icon="DOT")
+            for aliases, desc in items:
+                split = col.split(factor=0.5)
+                split.alignment = "LEFT"
+                split.label(text=f"  {aliases}")
+                split.alignment = "LEFT"
+                split.label(text=desc)
+
+
+def hippo3d_command_help_categories():
+    """Return the command reference as structured (title, items) pairs."""
+    return [
+        ("Drawing", [
+            ("line, l", "Draw a straight line"),
+            ("polyline, pline, pl", "Draw a polyline"),
+            ("rectangle, rect", "Rectangle from two opposite corners"),
+            ("circle, c", "Circle from center and radius"),
+            ("arc", "Arc from start, point-on-arc, end"),
+            ("ellipse, ell", "Ellipse from center and radius point"),
+            ("polygon, poly, ngon", "Regular polygon"),
+            ("xline, constructionline", "Infinite construction line"),
+            ("nurbs, nurbscurve, curve, crv [degree]", "NURBS control-point curve"),
+        ]),
+        ("Curve Tools", [
+            ("offset [distance]", "Offset selected curves"),
+            ("trim", "Trim selected curves"),
+            ("explode", "Break curves into segments"),
+            ("join, j", "Join selected objects"),
+            ("project, projecttocplane", "Project objects to active CPlane"),
+            ("convertmesh, tomesh, mesh, ctm", "Convert selected to mesh"),
+            ("setdegree, degree, rebuild [n]", "Set selected NURBS degree"),
+        ]),
+        ("Surface-Like Tools", [
+            ("loft, loftsrf, surface, srf", "Loft through selected curves"),
+            ("loftmodifier, loftmod, gnloft", "Loft with Geometry Nodes modifier"),
+            ("extrude [distance]", "Extrude selected curves"),
+            ("pipe, pipecrv [radius]", "Pipe along selected curves"),
+            ("revolve, rev [angle]", "Revolve selected profile"),
+            ("setrevolveaxis, revaxis", "Pick revolve axis"),
+            ("clearrevolveaxis, clearrevaxis", "Clear revolve axis"),
+            ("planarsrf, planesrf", "Planar surface from closed curves"),
+            ("edgesrf, edgesurface", "Edge surface from 2-4 curves"),
+        ]),
+        ("OCC / B-rep", [
+            ("box / sphere / cylinder / cone / torus", "OCC primitives"),
+            ("occloft / occrevolve / occsweep1", "OCC surface operations"),
+            ("occplanarsrf / occedgesrf", "OCC planar / edge surfaces"),
+            ("occbooleanfuse, occunion", "Boolean union"),
+            ("occbooleancut, occdifference", "Boolean difference"),
+            ("occbooleancommon, occintersection", "Boolean intersection"),
+            ("occsplit", "Split OCC shape"),
+            ("occtomesh, occmesh", "Convert OCC to mesh"),
+            ("meshtoocc, mesh_to_occ", "Convert mesh to OCC"),
+            ("optimizetogrid, gridify", "Resample mesh to grid"),
+            ("extractisocurves, isocurves", "Extract U/V isocurves"),
+            ("interactiveiso, isoclick", "Click-interactive isocurves"),
+            ("explodeocc, occexplode", "Explode OCC shape"),
+            ("occtonurbs, occnurbs", "Convert to NURBS"),
+            ("occrebuild", "Rebuild OCC from history"),
+            ("occshowsources, show_sources", "Show OCC source curves"),
+            ("stepout / stepin", "Export / import STEP"),
+            ("3dmout / 3dmin", "Export / import 3DM (Rhino)"),
+            ("serpout / serpin", "Export / import Serpentine3D (.serp)"),
+            ("pointson, points_on", "Show control points"),
+            ("pointsoff, points_off", "Hide control points"),
+        ]),
+        ("CPlane System", [
+            ("cplane save [name]", "Save current CPlane"),
+            ("cplane restore [name]", "Restore named CPlane"),
+            ("cplane delete [name]", "Delete named CPlane"),
+            ("cplane 3pt [name]", "CPlane from 3 points"),
+            ("cplane face [name]", "CPlane aligned to face"),
+            ("cplane curveperp [name]", "CPlane perpendicular to curve"),
+            ("cplane rotate [name] [angle]", "Rotate CPlane"),
+            ("cplane move [name]", "Move CPlane"),
+            ("cameratocplane", "Align camera to CPlane"),
+            ("viewtocplane", "Align view to CPlane"),
+        ]),
+        ("Utilities", [
+            ("array", "Linear array of selected objects"),
+            ("ortho, f8", "Toggle ortho constraint"),
+            ("help", "Show this command reference"),
+            ("hippo_native_status", "Report native backend status"),
+        ]),
+    ]
+
+
+def hippo3d_command_help_text():
+    """Return a multi-line string listing all Hippo3D commands and aliases."""
+    categories = hippo3d_command_help_categories()
+    lines = [
+        "=" * 70,
+        "HIPPO3D COMMAND REFERENCE",
+        "=" * 70,
+        "Open the command line with Ctrl+/ (or cad.start_command).",
+        "Type a command and press Enter. Use Esc to finish point commands.",
+        "Coordinates are parsed as x,y,z or @x,y,z relative to the last point.",
+        "",
+    ]
+    for title, items in categories:
+        lines.append(title.upper())
+        lines.append("-" * len(title))
+        for aliases, desc in items:
+            lines.append(f"  {aliases:<46} {desc}")
+        lines.append("")
+    return lines
 
 
 class Hippo3D_OT_RebuildHippo3D_Loft(Operator):
@@ -3236,16 +3468,6 @@ def run_sweep1_command(context):
     return False, "Sweep1 is temporarily disabled."
 
 
-
-class CAD_OT_LoftSurface(Operator):
-    bl_idname = "cad.loft_surface"
-    bl_label = "Loft"
-    bl_description = "Create a loft surface from selected curves."
-
-    def execute(self, context):
-        ok, msg = run_loft_command(context)
-        self.report({"INFO" if ok else "WARNING"}, msg)
-        return {"FINISHED"}
 
 class CAD_OT_LoftRealModifier(Operator):
     bl_idname = "cad.loft_real_modifier"
@@ -4431,6 +4653,7 @@ class Hippo3D_PT_MainPanel(Panel):
         col = layout.column(align=True)
         col.label(text="Commands")
         col.operator("cad.start_command", text="Hippo Command Line  Ctrl+/", icon="CONSOLE")
+        col.operator("cad.hippo3d_help", text="Help / Commands", icon="HELP")
         col.separator()
         col.label(text="Curve Creation")
         col.operator("cad.start_line", text="Line", icon="CURVE_PATH")
@@ -4578,7 +4801,7 @@ class Hippo3D_PT_MainPanel(Panel):
 
         if hasattr(context.scene, "cad_cplane_items") and hasattr(context.scene, "cad_cplane_index"):
             box.template_list(
-                "Hippo3D_UL_cplane_list",
+                "HIPPO3D_UL_cplane_list",
                 "",
                 context.scene,
                 "cad_cplane_items",
@@ -4623,6 +4846,9 @@ class Hippo3D_PT_MainPanel(Panel):
         row = box.row(align=True)
         row.operator("hippo.import_3dm", text="Import 3DM", icon="IMPORT")
         row.operator("hippo.export_3dm", text="Export 3DM", icon="EXPORT")
+        row = box.row(align=True)
+        row.operator("hippo.import_serpentine", text="Import Serp", icon="IMPORT")
+        row.operator("hippo.export_serpentine", text="Export Serp", icon="EXPORT")
 
         layout.separator()
         box = layout.box()
@@ -4732,7 +4958,7 @@ class Hippo3D_OT_ToggleCPlaneVisibilityExplicit(Operator):
 class Hippo3D_WST_LineTool(WorkSpaceTool):
     bl_space_type = "VIEW_3D"
     bl_context_mode = "OBJECT"
-    bl_idname = "cad_blender.line_tool"
+    bl_idname = "hippo3d.line_tool"
     bl_label = "Line"
     bl_description = "Start Line command"
     bl_icon = (ICON_DIR / "line").as_posix()
@@ -4743,7 +4969,7 @@ class Hippo3D_WST_LineTool(WorkSpaceTool):
 class Hippo3D_WST_PolylineTool(WorkSpaceTool):
     bl_space_type = "VIEW_3D"
     bl_context_mode = "OBJECT"
-    bl_idname = "cad_blender.polyline_tool"
+    bl_idname = "hippo3d.polyline_tool"
     bl_label = "Polyline"
     bl_description = "Start Polyline command"
     bl_icon = (ICON_DIR / "polyline").as_posix()
@@ -4754,7 +4980,7 @@ class Hippo3D_WST_PolylineTool(WorkSpaceTool):
 class Hippo3D_WST_RectangleTool(WorkSpaceTool):
     bl_space_type = "VIEW_3D"
     bl_context_mode = "OBJECT"
-    bl_idname = "cad_blender.rectangle_tool"
+    bl_idname = "hippo3d.rectangle_tool"
     bl_label = "Rectangle"
     bl_description = "Start Rectangle command"
     bl_icon = (ICON_DIR / "rectangle").as_posix()
@@ -4765,7 +4991,7 @@ class Hippo3D_WST_RectangleTool(WorkSpaceTool):
 class Hippo3D_WST_CircleTool(WorkSpaceTool):
     bl_space_type = "VIEW_3D"
     bl_context_mode = "OBJECT"
-    bl_idname = "cad_blender.circle_tool"
+    bl_idname = "hippo3d.circle_tool"
     bl_label = "Circle"
     bl_description = "Start Circle command"
     bl_icon = (ICON_DIR / "circle").as_posix()
@@ -4776,7 +5002,7 @@ class Hippo3D_WST_CircleTool(WorkSpaceTool):
 class Hippo3D_WST_NurbsTool(WorkSpaceTool):
     bl_space_type = "VIEW_3D"
     bl_context_mode = "OBJECT"
-    bl_idname = "cad_blender.nurbs_tool"
+    bl_idname = "hippo3d.nurbs_tool"
     bl_label = "NURBS Curve"
     bl_description = "Start NURBS Curve command"
     bl_icon = (ICON_DIR / "nurbs").as_posix()
@@ -6015,8 +6241,12 @@ def _run_occ_export_step_command(context, cmd):
         return False, f"STEP export failed: {exc}"
 
 
-def _run_occ_import_step_command(context, cmd):
-    """Internal: Import shapes from STEP file."""
+def _run_occ_import_step_command(context, cmd, occ_type="step"):
+    """Internal: Import shapes from STEP file.
+
+    `occ_type` lets callers tag imported objects with a custom source label
+    (e.g. "serp" for the Serpentine3D bridge) while reusing the same logic.
+    """
     try:
         occ = hippo_load_occ_core()
     except Exception as exc:
@@ -6033,7 +6263,7 @@ def _run_occ_import_step_command(context, cmd):
         for sid in shape_ids:
             data = occ.remesh_shape(sid, 0.1)
             obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_STEP", data)
-            obj["hippo_occ_type"] = "step"
+            obj["hippo_occ_type"] = occ_type
             imported.append(obj.name)
         return True, f"Imported {len(imported)} shape(s) from STEP: {filepath}"
     except Exception as exc:
@@ -6086,6 +6316,67 @@ def _run_occ_import_3dm_command(context, cmd):
         return True, f"Imported {len(imported)} shape(s) from 3DM: {filepath}"
     except Exception as exc:
         return False, f"3DM import failed: {exc}"
+
+
+# -----------------------------------------------------------------------------
+# Serpentine3D bridge helpers
+# -----------------------------------------------------------------------------
+
+def _run_occ_export_serpentine_command(context, cmd):
+    """Internal: Export selected OCC objects to a Serpentine3D .serp file."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+
+    ids, cleanup, err = _occ_selected_shape_ids_from_any_world(context, occ, min_count=1)
+    if err:
+        return False, err
+
+    parts = cmd.strip().split(maxsplit=1)
+    filepath = parts[1] if len(parts) > 1 else None
+    if not filepath:
+        return False, "Usage: serpout /path/to/file.serp"
+    if not filepath.lower().endswith(".serp"):
+        filepath += ".serp"
+
+    try:
+        if len(ids) == 1:
+            ok, msg = occ.export_serp(ids[0], filepath)
+        else:
+            ok, msg = occ.export_serp_multi(ids, filepath)
+        return ok, msg
+    except Exception as exc:
+        return False, f"Serpentine3D export failed: {exc}"
+    finally:
+        cleanup()
+
+
+def _run_occ_import_serpentine_command(context, cmd):
+    """Internal: Import shapes from a Serpentine3D .serp file."""
+    try:
+        occ = hippo_load_occ_core()
+    except Exception as exc:
+        return False, f"OCC core not available: {exc}"
+
+    parts = cmd.strip().split(maxsplit=1)
+    filepath = parts[1] if len(parts) > 1 else None
+    if not filepath:
+        return False, "Usage: serpin /path/to/file.serp"
+
+    try:
+        shape_ids = occ.import_serp(filepath)
+        if not shape_ids:
+            return False, "No shapes imported from Serpentine3D file."
+        imported = []
+        for sid in shape_ids:
+            data = occ.remesh_shape(sid, 0.1)
+            obj = hippo_create_occ_mesh_object(context, "Hippo3D_OCC_Serp", data)
+            obj["hippo_occ_type"] = "serp"
+            imported.append(obj.name)
+        return True, f"Imported {len(imported)} shape(s) from Serpentine3D: {filepath}"
+    except Exception as exc:
+        return False, f"Serpentine3D import failed: {exc}"
 
 
 def optimize_mesh_to_grid(context, obj=None, grid_u=None, grid_v=None):
@@ -6961,6 +7252,52 @@ class HIPPO_OT_Import3DM(Operator):
             self.report({"WARNING"}, "No file selected")
             return {"CANCELLED"}
         ok, msg = _run_occ_import_3dm_command(context, f"3dmin {self.filepath}")
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+
+class HIPPO_OT_ExportSerpentine(Operator):
+    bl_idname = "hippo.export_serpentine"
+    bl_label = "Export Serpentine3D"
+    bl_description = "Export selected OCC shapes to a Serpentine3D .serp file"
+    bl_options = {"REGISTER", "UNDO"}
+
+    filepath: StringProperty(subtype="FILE_PATH")
+    filename_ext = ".serp"
+    filter_glob: StringProperty(default="*.serp", options={"HIDDEN"})
+
+    def execute(self, context):
+        if not self.filepath:
+            self.report({"WARNING"}, "No file selected")
+            return {"CANCELLED"}
+        ok, msg = _run_occ_export_serpentine_command(context, f"serpout {self.filepath}")
+        self.report({"INFO" if ok else "WARNING"}, msg)
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+
+class HIPPO_OT_ImportSerpentine(Operator):
+    bl_idname = "hippo.import_serpentine"
+    bl_label = "Import Serpentine3D"
+    bl_description = "Import shapes from a Serpentine3D .serp file"
+    bl_options = {"REGISTER", "UNDO"}
+
+    filepath: StringProperty(subtype="FILE_PATH")
+    filename_ext = ".serp"
+    filter_glob: StringProperty(default="*.serp", options={"HIDDEN"})
+
+    def execute(self, context):
+        if not self.filepath:
+            self.report({"WARNING"}, "No file selected")
+            return {"CANCELLED"}
+        ok, msg = _run_occ_import_serpentine_command(context, f"serpin {self.filepath}")
         self.report({"INFO" if ok else "WARNING"}, msg)
         return {"FINISHED"}
 
@@ -7888,7 +8225,7 @@ class HIPPO_OT_ExtractIsoInteractive(Operator):
         self._cleanup(context)
 
 
-classes = [HIPPO_OT_OCCTogglePoints, HIPPO_OT_OCCBox, HIPPO_OT_OCCSphere, HIPPO_OT_OCCCylinder, HIPPO_OT_OCCCone, HIPPO_OT_OCCTorus, HIPPO_OT_OCCLoft, HIPPO_OT_OCCRevolve, HIPPO_OT_OCCSweep1, HIPPO_OT_OCCPlanarSrf, HIPPO_OT_OCCEdgeSrf, HIPPO_OT_OCCBooleanFuse, HIPPO_OT_OCCBooleanCut, HIPPO_OT_OCCBooleanCommon, HIPPO_OT_OCCSplit, HIPPO_OT_ExportSTEP, HIPPO_OT_ImportSTEP, HIPPO_OT_Export3DM, HIPPO_OT_Import3DM, HIPPO_OT_OCCToMesh, HIPPO_OT_MeshToOCC, HIPPO_OT_OptimizeToGrid, HIPPO_OT_ExtractIsocurves, HIPPO_OT_ExplodeOCC, HIPPO_OT_OCCToNurbs, HIPPO_OT_ExtractIsoInteractive, Hippo3D_OT_Command, Hippo3D_OT_StartLine, Hippo3D_OT_StartPolyline, Hippo3D_OT_StartRectangle, Hippo3D_OT_StartCircle, Hippo3D_OT_StartNurbs, Hippo3D_OT_SetSelectedNurbsDegree, Hippo3D_OT_Hippo3D_Loft, CAD_OT_LoftSurface, CAD_OT_LoftRealModifier, HIPPO_OT_NativeStatus, HIPPO_OT_StartArc, HIPPO_OT_Ellipse, HIPPO_OT_Polygon, HIPPO_OT_Project, HIPPO_OT_Array, HIPPO_OT_Explode, HIPPO_OT_XLine, HIPPO_OT_Offset,  HIPPO_OT_Trim, HIPPO_OT_Hippo3D_PlanarSurface, HIPPO_OT_Hippo3D_EdgeSurface, Hippo3D_OT_Hippo3D_Revolve, Hippo3D_OT_ClearRevolveAxis, Hippo3D_OT_SetRevolveAxis, CAD_OT_PipeSurface, CAD_OT_ExtrudeSurface, Hippo3D_OT_StartCommand, Hippo3D_OT_ToggleOrtho, Hippo3D_OT_ConvertToMesh, Hippo3D_OT_Join, Hippo3D_OT_SaveCPlane, Hippo3D_OT_RestoreCPlane, Hippo3D_OT_StartCPlane3Pt, Hippo3D_OT_StartCPlaneFace, Hippo3D_OT_StartCPlaneCurvePerp, Hippo3D_OT_RotateCPlane, Hippo3D_OT_StartCPlaneRotate3Pt, Hippo3D_OT_ApplyCPlaneAxisRotation, Hippo3D_OT_StartCPlaneAxisRotate, Hippo3D_OT_StartCPlaneMove, Hippo3D_OT_CameraToCPlane, Hippo3D_OT_ViewToCPlane, Hippo3D_OT_StartCPlaneZAxis, Hippo3D_OT_StartCPlaneXAxis, Hippo3D_OT_ToggleCPlaneVisibilityExplicit, Hippo3D_OT_ActivateCPlaneExplicit, Hippo3D_OT_RefreshCPlaneList, Hippo3D_OT_DeleteSelectedCPlane, Hippo3D_OT_ActivateSelectedCPlane, Hippo3D_OT_ToggleSelectedCPlaneVisible, Hippo3D_UL_CPlaneList, Hippo3D_CPlaneListItem, Hippo3D_OT_SetBuiltinCPlane, Hippo3D_OT_RestoreCPlaneByName, Hippo3D_OT_SetCPlaneVisible, Hippo3D_OT_DeleteCPlane, Hippo3D_PT_MainPanel]
+classes = [HIPPO_OT_OCCTogglePoints, HIPPO_OT_OCCBox, HIPPO_OT_OCCSphere, HIPPO_OT_OCCCylinder, HIPPO_OT_OCCCone, HIPPO_OT_OCCTorus, HIPPO_OT_OCCLoft, HIPPO_OT_OCCRevolve, HIPPO_OT_OCCSweep1, HIPPO_OT_OCCPlanarSrf, HIPPO_OT_OCCEdgeSrf, HIPPO_OT_OCCBooleanFuse, HIPPO_OT_OCCBooleanCut, HIPPO_OT_OCCBooleanCommon, HIPPO_OT_OCCSplit, HIPPO_OT_ExportSTEP, HIPPO_OT_ImportSTEP, HIPPO_OT_Export3DM, HIPPO_OT_Import3DM, HIPPO_OT_ExportSerpentine, HIPPO_OT_ImportSerpentine, HIPPO_OT_OCCToMesh, HIPPO_OT_MeshToOCC, HIPPO_OT_OptimizeToGrid, HIPPO_OT_ExtractIsocurves, HIPPO_OT_ExplodeOCC, HIPPO_OT_OCCToNurbs, HIPPO_OT_ExtractIsoInteractive, Hippo3D_OT_Command, Hippo3D_OT_StartLine, Hippo3D_OT_StartPolyline, Hippo3D_OT_StartRectangle, Hippo3D_OT_StartCircle, Hippo3D_OT_StartNurbs, Hippo3D_OT_SetSelectedNurbsDegree, Hippo3D_OT_Hippo3D_Loft, CAD_OT_LoftRealModifier, HIPPO_OT_NativeStatus, HIPPO_OT_StartArc, HIPPO_OT_Ellipse, HIPPO_OT_Polygon, HIPPO_OT_Project, HIPPO_OT_Array, HIPPO_OT_Explode, HIPPO_OT_XLine, HIPPO_OT_Offset,  HIPPO_OT_Trim, HIPPO_OT_Hippo3D_PlanarSurface, HIPPO_OT_Hippo3D_EdgeSurface, Hippo3D_OT_Hippo3D_Revolve, Hippo3D_OT_ClearRevolveAxis, Hippo3D_OT_SetRevolveAxis, CAD_OT_PipeSurface, CAD_OT_ExtrudeSurface, Hippo3D_OT_StartCommand, Hippo3D_OT_ToggleOrtho, Hippo3D_OT_ConvertToMesh, Hippo3D_OT_Join, Hippo3D_OT_SaveCPlane, Hippo3D_OT_RestoreCPlane, Hippo3D_OT_StartCPlane3Pt, Hippo3D_OT_StartCPlaneFace, Hippo3D_OT_StartCPlaneCurvePerp, Hippo3D_OT_RotateCPlane, Hippo3D_OT_StartCPlaneRotate3Pt, Hippo3D_OT_ApplyCPlaneAxisRotation, Hippo3D_OT_StartCPlaneAxisRotate, Hippo3D_OT_StartCPlaneMove, Hippo3D_OT_CameraToCPlane, Hippo3D_OT_ViewToCPlane, Hippo3D_OT_StartCPlaneZAxis, Hippo3D_OT_StartCPlaneXAxis, Hippo3D_OT_ToggleCPlaneVisibilityExplicit, Hippo3D_OT_ActivateCPlaneExplicit, Hippo3D_OT_RefreshCPlaneList, Hippo3D_OT_DeleteSelectedCPlane, Hippo3D_OT_ActivateSelectedCPlane, Hippo3D_OT_ToggleSelectedCPlaneVisible, HIPPO3D_UL_CPlaneList, Hippo3D_CPlaneListItem, Hippo3D_OT_SetBuiltinCPlane, Hippo3D_OT_RestoreCPlaneByName, Hippo3D_OT_SetCPlaneVisible, Hippo3D_OT_DeleteCPlane, Hippo3D_PT_MainPanel, Hippo3D_OT_Help]
 
 
 def _cad_cplane_enum_update(self, context):
@@ -9336,125 +9673,13 @@ def run_sweep1_command(context):
     return False, "Sweep1 is temporarily disabled."
 
 
-class CAD_OT_LoftRealModifier(Operator):
-    bl_idname = "cad.loft_real_modifier"
-    bl_label = "Loft Modifier"
-    bl_description = "Create a loft object with a real Geometry Nodes modifier in Blender's modifier stack."
-
-    def execute(self, context):
-        ok, msg = create_loft_with_real_modifier(context)
-        self.report({"INFO" if ok else "WARNING"}, msg)
-        return {"FINISHED"}
 
 
 
 
 
-class HIPPO_OT_Hippo3D_EdgeSurface(Operator):
-    bl_idname = "cad.edgesrf"
-    bl_label = "Edge Surface"
-    bl_description = "Create a surface from 2, 3, or 4 selected edge curves."
-
-    def execute(self, context):
-        ok, msg = run_edgesrf_command(context)
-        self.report({"INFO" if ok else "WARNING"}, msg)
-        return {"FINISHED"}
 
 
-class HIPPO_OT_Hippo3D_PlanarSurface(Operator):
-    bl_idname = "cad.planarsrf"
-    bl_label = "Planar Surface"
-    bl_description = "Create planar mesh surface(s) from selected closed planar curves."
-
-    def execute(self, context):
-        ok, msg = run_planarsrf_command(context)
-        self.report({"INFO" if ok else "WARNING"}, msg)
-        return {"FINISHED"}
-
-
-class HIPPO_OT_NativeStatus(Operator):
-    bl_idname = "cad.hippo_native_status"
-    bl_label = "Native Backend Status"
-
-    def execute(self, context):
-        if HIPPO_NATIVE_SURFACE_AVAILABLE:
-            self.report({"INFO"}, "Hippo3D native C surface backend loaded.")
-        else:
-            self.report({"WARNING"}, "Native backend not loaded. " + str(HIPPO_NATIVE_SURFACE_ERROR))
-        return {"FINISHED"}
-
-
-class CAD_OT_ExtrudeSurface(Operator):
-    bl_idname = "cad.extrude_surface"
-    bl_label = "Extrude Surface"
-    bl_description = "Extrude selected curve(s) along active CPlane normal."
-
-    def execute(self, context):
-        ok, msg = run_extrude_command(context)
-        self.report({"INFO" if ok else "WARNING"}, msg)
-        return {"FINISHED"}
-
-
-class CAD_OT_PipeSurface(Operator):
-    bl_idname = "cad.pipe_surface"
-    bl_label = "Pipe"
-    bl_description = "Create pipe(s) from selected curve(s)."
-
-    def execute(self, context):
-        ok, msg = run_pipe_command(context)
-        self.report({"INFO" if ok else "WARNING"}, msg)
-        return {"FINISHED"}
-
-
-class Hippo3D_OT_Hippo3D_Revolve(Operator):
-    bl_idname = "cad.revolve_surface"
-    bl_label = "Revolve"
-    bl_description = "Revolve selected profile curve(s) around active CPlane Z axis."
-
-    def execute(self, context):
-        ok, msg = run_revolve_command(context)
-        self.report({"INFO" if ok else "WARNING"}, msg)
-        return {"FINISHED"}
-
-
-
-class Hippo3D_OT_SetRevolveAxis(Operator):
-    bl_idname = "cad.set_revolve_axis"
-    bl_label = "Set Revolve Axis"
-    bl_description = "Pick two points to define the Revolve axis."
-
-    def execute(self, context):
-        bpy.ops.cad.command("INVOKE_DEFAULT", initial_command="revolveaxis")
-        return {"FINISHED"}
-
-class Hippo3D_OT_ClearRevolveAxis(Operator):
-    bl_idname = "cad.clear_revolve_axis"
-    bl_label = "Clear Revolve Axis"
-
-    def execute(self, context):
-        ok, msg = clear_revolve_axis(context)
-        self.report({"INFO" if ok else "WARNING"}, msg)
-        return {"FINISHED"}
-
-
-
-
-class HIPPO_OT_Polygon(Operator):
-    bl_idname = "cad.polygon"
-    bl_label = "Polygon"
-
-    def execute(self, context):
-        bpy.ops.cad.command("INVOKE_DEFAULT", initial_command="polygon")
-        return {"FINISHED"}
-
-class HIPPO_OT_Trim(Operator):
-    bl_idname = "cad.trim"
-    bl_label = "Trim"
-
-    def execute(self, context):
-        ok, msg = run_trim_command(context)
-        self.report({"INFO" if ok else "WARNING"}, msg)
-        return {"FINISHED"}
 
 
 
@@ -9904,28 +10129,7 @@ def run_offset_command(context):
 
 
 
-class HIPPO_OT_Offset(Operator):
-    bl_idname = "cad.offset"
-    bl_label = "Offset"
-    def execute(self, context):
-        ok, msg = run_offset_command(context)
-        self.report({"INFO" if ok else "WARNING"}, msg)
-        return {"FINISHED"}
 
-class HIPPO_OT_XLine(Operator):
-    bl_idname = "cad.xline"
-    bl_label = "XLine"
-    def execute(self, context):
-        bpy.ops.cad.command("INVOKE_DEFAULT", initial_command="xline")
-        return {"FINISHED"}
-
-class HIPPO_OT_Explode(Operator):
-    bl_idname = "cad.explode"
-    bl_label = "Explode"
-    def execute(self, context):
-        ok, msg = run_explode_command(context)
-        self.report({"INFO" if ok else "WARNING"}, msg)
-        return {"FINISHED"}
 
 
 # -----------------------------------------------------------------------------
@@ -9974,35 +10178,7 @@ def run_array_command(context):
     return True, f"Array created {created} copied object(s)."
 
 
-class HIPPO_OT_Array(Operator):
-    bl_idname = "cad.array"
-    bl_label = "Array"
-    def execute(self, context):
-        ok, msg = run_array_command(context)
-        self.report({"INFO" if ok else "WARNING"}, msg)
-        return {"FINISHED"}
 
-class HIPPO_OT_Project(Operator):
-    bl_idname = "cad.project"
-    bl_label = "Project"
-    def execute(self, context):
-        ok, msg = run_project_command(context)
-        self.report({"INFO" if ok else "WARNING"}, msg)
-        return {"FINISHED"}
-
-class HIPPO_OT_Ellipse(Operator):
-    bl_idname = "cad.ellipse"
-    bl_label = "Ellipse"
-    def execute(self, context):
-        bpy.ops.cad.command("INVOKE_DEFAULT", initial_command="ellipse")
-        return {"FINISHED"}
-
-class HIPPO_OT_StartArc(Operator):
-    bl_idname = "cad.start_arc"
-    bl_label = "Arc"
-    def execute(self, context):
-        bpy.ops.cad.command("INVOKE_DEFAULT", initial_command="arc")
-        return {"FINISHED"}
 
 
 
@@ -11629,15 +11805,17 @@ def register():
         pass
 
     try:
-        bpy.utils.register_tool(Hippo3D_WST_LineTool, after={"builtin.select_box"}, separator=True, group=True)
-        bpy.utils.register_tool(Hippo3D_WST_PolylineTool, after={"cad_blender.line_tool"}, group=True)
-        bpy.utils.register_tool(Hippo3D_WST_RectangleTool, after={"cad_blender.polyline_tool"}, group=True)
-        bpy.utils.register_tool(Hippo3D_WST_CircleTool, after={"cad_blender.rectangle_tool"}, group=True)
-        bpy.utils.register_tool(Hippo3D_WST_ArcTool, after={"cad_blender.circle_tool"}, group=True)
-        bpy.utils.register_tool(Hippo3D_WST_EllipseTool, after={"hippo3d.arc_tool"}, group=True)
+        # Register after Blender's default creation/annotation tools so Hippo3D
+        # does not override the built-in toolbar. Tools are grouped by similarity.
+        bpy.utils.register_tool(Hippo3D_WST_LineTool, after={"builtin.add_cube"}, separator=True, group=True)
+        bpy.utils.register_tool(Hippo3D_WST_PolylineTool, after={"hippo3d.line_tool"}, group=True)
+        bpy.utils.register_tool(Hippo3D_WST_ArcTool, after={"hippo3d.polyline_tool"}, group=True)
+        bpy.utils.register_tool(Hippo3D_WST_XLineTool, after={"hippo3d.arc_tool"}, group=True)
+        bpy.utils.register_tool(Hippo3D_WST_RectangleTool, after={"hippo3d.xline_tool"}, separator=True, group=True)
+        bpy.utils.register_tool(Hippo3D_WST_CircleTool, after={"hippo3d.rectangle_tool"}, group=True)
+        bpy.utils.register_tool(Hippo3D_WST_EllipseTool, after={"hippo3d.circle_tool"}, group=True)
         bpy.utils.register_tool(Hippo3D_WST_PolygonTool, after={"hippo3d.ellipse_tool"}, group=True)
-        bpy.utils.register_tool(Hippo3D_WST_NurbsTool, after={"hippo3d.polygon_tool"}, group=True)
-        bpy.utils.register_tool(Hippo3D_WST_XLineTool, after={"cad_blender.nurbs_tool"}, group=True)
+        bpy.utils.register_tool(Hippo3D_WST_NurbsTool, after={"hippo3d.polygon_tool"}, separator=True, group=True)
     except Exception:
         pass
 
@@ -11673,13 +11851,13 @@ def unregister():
         pass
 
     try:
-        bpy.utils.unregister_tool(Hippo3D_WST_XLineTool)
         bpy.utils.unregister_tool(Hippo3D_WST_NurbsTool)
         bpy.utils.unregister_tool(Hippo3D_WST_PolygonTool)
         bpy.utils.unregister_tool(Hippo3D_WST_EllipseTool)
-        bpy.utils.unregister_tool(Hippo3D_WST_ArcTool)
         bpy.utils.unregister_tool(Hippo3D_WST_CircleTool)
         bpy.utils.unregister_tool(Hippo3D_WST_RectangleTool)
+        bpy.utils.unregister_tool(Hippo3D_WST_XLineTool)
+        bpy.utils.unregister_tool(Hippo3D_WST_ArcTool)
         bpy.utils.unregister_tool(Hippo3D_WST_PolylineTool)
         bpy.utils.unregister_tool(Hippo3D_WST_LineTool)
     except Exception:

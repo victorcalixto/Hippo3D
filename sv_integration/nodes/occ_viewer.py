@@ -493,7 +493,112 @@ def _solid_to_occ_shape(solid):
 # ---------------------------------------------------------------------------
 # OCC baking helpers
 # ---------------------------------------------------------------------------
-def _create_hippo_object(context, name, occ_shape_id, location, nurbs_shape_id=None):
+_HIPPO_PRIMITIVE_DIMS = {
+    "box": ["hippo_occ_width", "hippo_occ_depth", "hippo_occ_height"],
+    "sphere": ["hippo_occ_radius"],
+    "cylinder": ["hippo_occ_radius", "hippo_occ_height"],
+    "cone": ["hippo_occ_radius1", "hippo_occ_radius2", "hippo_occ_height"],
+    "torus": ["hippo_occ_major_radius", "hippo_occ_minor_radius"],
+}
+
+
+def _is_solid_like_shape(occ, shape_id):
+    """Return True if the OCC shape topology is solid-like."""
+    try:
+        if hasattr(occ, "get_shape_type"):
+            return occ.get_shape_type(shape_id) in {"solid", "compsolid", "compound"}
+    except Exception:
+        pass
+    return False
+
+
+def _is_surface_like_shape(occ, shape_id):
+    """Return True if the OCC shape topology is a single face or shell."""
+    try:
+        if hasattr(occ, "get_shape_type"):
+            return occ.get_shape_type(shape_id) in {"face", "shell"}
+    except Exception:
+        pass
+    return False
+
+
+def _recognize_freecad_primitive(solid):
+    """Try to recognize a FreeCAD primitive solid and return dimension props.
+
+    Returns (occ_type, props_dict) or (None, None).
+    """
+    if not FREECAD_AVAILABLE:
+        return None, None
+    try:
+        import Part
+        if not isinstance(solid, Part.Shape):
+            return None, None
+
+        shape_type = getattr(solid, "ShapeType", "")
+        if shape_type != "Solid":
+            return None, None
+
+        # Helper: count face types
+        faces = solid.Faces
+        n_planar = sum(1 for f in faces if str(f.Surface).startswith("Plane"))
+        n_cyl = sum(1 for f in faces if str(f.Surface).startswith("Cylinder"))
+        n_sphere = sum(1 for f in faces if str(f.Surface).startswith("Sphere"))
+        n_cone = sum(1 for f in faces if str(f.Surface).startswith("Cone"))
+        n_torus = sum(1 for f in faces if str(f.Surface).startswith("Torus"))
+
+        # Box: 6 planar faces
+        if len(faces) == 6 and n_planar == 6:
+            bbox = solid.BoundBox
+            return "box", {
+                "hippo_occ_width": float(bbox.XLength),
+                "hippo_occ_depth": float(bbox.YLength),
+                "hippo_occ_height": float(bbox.ZLength),
+            }
+
+        # Sphere: 1 spherical face
+        if len(faces) == 1 and n_sphere == 1:
+            r = float(faces[0].Surface.Radius)
+            return "sphere", {"hippo_occ_radius": r}
+
+        # Cylinder: 3 faces (2 planar + 1 cylindrical)
+        if len(faces) == 3 and n_planar == 2 and n_cyl == 1:
+            cyl = faces[n_planar].Surface
+            h = float(solid.BoundBox.ZLength)
+            return "cylinder", {
+                "hippo_occ_radius": float(cyl.Radius),
+                "hippo_occ_height": h,
+            }
+
+        # Cone: 3 faces (2 planar + 1 conical)
+        if len(faces) == 3 and n_planar == 2 and n_cone == 1:
+            cone = faces[n_planar].Surface
+            h = float(solid.BoundBox.ZLength)
+            return "cone", {
+                "hippo_occ_radius1": float(cone.Radius),
+                "hippo_occ_radius2": 0.0,
+                "hippo_occ_height": h,
+            }
+
+        # Torus: 1 toroidal face
+        if len(faces) == 1 and n_torus == 1:
+            tor = faces[0].Surface
+            return "torus", {
+                "hippo_occ_major_radius": float(tor.MajorRadius),
+                "hippo_occ_minor_radius": float(tor.MinorRadius),
+            }
+    except Exception:
+        pass
+    return None, None
+
+
+def _apply_primitive_props(obj, occ_type, props):
+    """Set primitive type and dimension properties on a baked object."""
+    obj["hippo_occ_type"] = occ_type
+    for key, value in props.items():
+        obj[key] = float(value)
+
+
+def _create_hippo_object(context, name, occ_shape_id, location, nurbs_shape_id=None, source_solid=None):
     """Create/update a Hippo3D OCC mesh object from an OCC shape_id."""
     try:
         occ = _load_hippo_occ_core()
@@ -511,10 +616,52 @@ def _create_hippo_object(context, name, occ_shape_id, location, nurbs_shape_id=N
             obj["hippo_occ_preview"] = True
             obj["hippo_occ_display_cache"] = True
             obj["hippo_occ_edit_locked"] = True
-            obj["hippo_occ_type"] = "sverchok_baked"
             obj["hippo_occ_shape_id"] = int(occ_shape_id)
             if nurbs_shape_id is not None:
                 obj["hippo_occ_nurbs_shape_id"] = int(nurbs_shape_id)
+
+            shape_type = "unknown"
+            if hasattr(occ, "get_shape_type"):
+                try:
+                    shape_type = occ.get_shape_type(occ_shape_id)
+                except Exception:
+                    pass
+
+            # 1. Solid-like shape: prefer primitive handles, then generic solid face editing.
+            if shape_type in {"solid", "compsolid", "compound"}:
+                # Try metadata from Hippo3D source first.
+                primitive_type = getattr(source_solid, "_hippo_occ_type", None)
+                primitive_props = None
+                if primitive_type:
+                    primitive_props = {}
+                    for key in _HIPPO_PRIMITIVE_DIMS.get(primitive_type, []):
+                        val = getattr(source_solid, key, None)
+                        if val is None:
+                            primitive_props = None
+                            break
+                        primitive_props[key] = float(val)
+
+                # Fallback: geometric recognition of FreeCAD primitives.
+                if primitive_type is None or primitive_props is None:
+                    primitive_type, primitive_props = _recognize_freecad_primitive(source_solid)
+
+                if primitive_type and primitive_props:
+                    _apply_primitive_props(obj, primitive_type, primitive_props)
+                else:
+                    obj["hippo_occ_type"] = "sverchok_baked_solid"
+                return obj
+
+            # 2. Surface/shell: keep surface editing behavior.
+            obj["hippo_occ_type"] = "sverchok_baked"
+            try:
+                if hasattr(occ, "extract_bsurf_control_points"):
+                    info = occ.extract_bsurf_control_points(occ_shape_id)
+                    u_count = int(info.get("u_count", 0))
+                    v_count = int(info.get("v_count", 0))
+                    if u_count >= 2 and v_count >= 2:
+                        obj["hippo_occ_surface_editable"] = True
+            except Exception:
+                pass
             return obj
     except Exception:
         pass
@@ -638,7 +785,7 @@ def _bake_solid(context, name, solid, location=None):
     occ_shape_id = _solid_to_occ_shape(solid)
     _debug(f"_solid_to_occ_shape returned {occ_shape_id}")
     if occ_shape_id is not None:
-        obj = _create_hippo_object(context, name, occ_shape_id, location)
+        obj = _create_hippo_object(context, name, occ_shape_id, location, source_solid=solid)
         _debug(f"_create_hippo_object returned {obj}")
         if obj is not None:
             return obj

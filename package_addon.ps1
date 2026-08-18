@@ -86,6 +86,7 @@ $addonFiles = @(
     "registration.py",
     "state.py",
     "test_in_blender.py",
+    "test_serpentine_bridge.py",
     "LICENSE",
     "README.md"
 )

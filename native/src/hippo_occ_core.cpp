@@ -9,6 +9,7 @@
 #include "occ_surface_ops.hpp"
 #include "occ_boolean.hpp"
 #include "occ_trim.hpp"
+#include "occ_solid_ops.hpp"
 #include "occ_mesh.hpp"
 
 namespace py = pybind11;
@@ -83,6 +84,19 @@ PYBIND11_MODULE(hippo_occ_core, m) {
     m.def("get_shape_type", &get_shape_type,
           py::arg("shape_id"),
           "Return OCC topology type of the shape (solid, shell, face, etc.).");
+
+    // Native Serpentine3D (.serp) BREP exchange
+    m.def("export_serp", &export_serp,
+          py::arg("shape_id"), py::arg("filepath"),
+          "Export a cached shape to a Serpentine3D .serp object blob. Returns (success, message).");
+
+    m.def("export_serp_multi", &export_serp_multi,
+          py::arg("shape_ids"), py::arg("filepath"),
+          "Export multiple cached shapes to a Serpentine3D .serp file. Returns (success, message).");
+
+    m.def("import_serp", &import_serp,
+          py::arg("filepath"),
+          "Import shapes from a Serpentine3D .serp file. Returns list of shape_ids.");
 
     // Curves / Wires
     m.def("make_polyline_wire", &make_polyline_wire,
@@ -182,6 +196,29 @@ PYBIND11_MODULE(hippo_occ_core, m) {
     m.def("explode_shape_to_faces", &explode_shape_to_faces,
           py::arg("shape_id"),
           "Explode a solid/compound/shell into individual faces. Returns list of shape_ids.");
+
+    // Solid face editing helpers
+    m.def("get_solid_face_shape_ids", &get_solid_face_shape_ids,
+          py::arg("shape_id"),
+          "Return a list of shape_ids, one per face of a solid/compound/shell.");
+
+    m.def("get_solid_face_shape_ids_dict", &get_solid_face_shape_ids_dict,
+          py::arg("shape_id"),
+          "Return a dict mapping face_index -> shape_id for a solid/compound/shell.");
+
+    m.def("sew_faces_to_solid", &sew_faces_to_solid,
+          py::arg("face_shape_ids"), py::arg("tolerance") = 1e-6,
+          "Sew a list of face shapes into a shell/solid. Returns new shape_id.");
+
+    m.def("make_solid_from_shell", &make_solid_from_shell,
+          py::arg("shell_shape_id"),
+          "Try to heal a shell into a closed solid. Returns new shape_id or -1.");
+
+    m.def("replace_face_in_shape", &replace_face_in_shape,
+          py::arg("shape_id"), py::arg("replacements"),
+          "Replace one or more faces in a solid/shell/compound with new faces. "
+          "replacements is a list of (old_face_shape_id, new_face_shape_id) pairs. "
+          "Returns new shape_id or -1.");
 
     // Surface UV projection / bounds
     m.def("project_point_to_surface_uv", &project_point_to_surface_uv,

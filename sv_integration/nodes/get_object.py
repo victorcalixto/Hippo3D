@@ -597,6 +597,31 @@ def _attach_object_metadata(item, obj):
     except Exception as e:
         _debug_exc(f"Could not attach object metadata to {type(item).__name__}: {e}")
 
+    # Preserve Hippo3D primitive metadata so baked solids can recover dimension handles.
+    try:
+        occ_type = obj.get("hippo_occ_type", "")
+        if occ_type in {"box", "sphere", "cylinder", "cone", "torus"}:
+            item._hippo_occ_type = occ_type
+            if occ_type == "box":
+                item._hippo_occ_width = float(obj.get("hippo_occ_width", 10.0))
+                item._hippo_occ_depth = float(obj.get("hippo_occ_depth", 10.0))
+                item._hippo_occ_height = float(obj.get("hippo_occ_height", 10.0))
+            elif occ_type == "sphere":
+                item._hippo_occ_radius = float(obj.get("hippo_occ_radius", 5.0))
+            elif occ_type == "cylinder":
+                item._hippo_occ_radius = float(obj.get("hippo_occ_radius", 5.0))
+                item._hippo_occ_height = float(obj.get("hippo_occ_height", 10.0))
+            elif occ_type == "cone":
+                item._hippo_occ_radius1 = float(obj.get("hippo_occ_radius1", 5.0))
+                item._hippo_occ_radius2 = float(obj.get("hippo_occ_radius2", 0.0))
+                item._hippo_occ_height = float(obj.get("hippo_occ_height", 10.0))
+            elif occ_type == "torus":
+                item._hippo_occ_major_radius = float(obj.get("hippo_occ_major_radius", 5.0))
+                item._hippo_occ_minor_radius = float(obj.get("hippo_occ_minor_radius", 1.25))
+    except Exception as e:
+        _debug_exc(f"Could not attach primitive metadata to {type(item).__name__}: {e}")
+
+
 
 def _resolve_shape_id(obj, prefer_nurbs=False):
     """Return a usable OCC shape id for the object, restoring from mesh if needed.
@@ -826,7 +851,7 @@ def _wrap_as_solid(obj):
 # ---------------------------------------------------------------------------
 class SvHippo3DGetObject(bpy.types.Node, SverchCustomTreeNode):
     bl_idname = 'SvHippo3DGetObject'
-    bl_label = 'Hippo3D Get Object INTEGRATED'
+    bl_label = 'Hippo3D Get Object'
     bl_icon = 'MESH_DATA'
 
     def sv_init(self, context):
@@ -876,25 +901,20 @@ class SvHippo3DGetObject(bpy.types.Node, SverchCustomTreeNode):
                 _debug_exc(f"Error getting objects from linked socket: {e}")
                 return
         else:
-            # Socket not linked: try to use the object selected in the socket's UI.
+            # Socket not linked: use the object selected in the socket's UI.  In
+            # modern Sverchok the object reference is stored on the socket as a
+            # PointerProperty named object_ref_pointer.
             selected_obj = None
-            for attr in ('object_ref', 'object_pointer', 'pointer', 'object'):
+            for attr in ('object_ref_pointer', 'object_ref'):
                 try:
                     candidate = getattr(objects_socket, attr, None)
-                    if candidate is not None:
-                        selected_obj = candidate
-                        _debug(f"Using unlinked object from socket attribute {attr}: {selected_obj}")
-                        break
-                except Exception:
-                    pass
-            # Some Sverchok versions store a PointerProperty via the socket's prop_name.
-            if selected_obj is None:
-                try:
-                    prop_name = getattr(objects_socket, 'prop_name', '')
-                    if prop_name:
-                        selected_obj = getattr(self, prop_name, None)
-                        if selected_obj is not None:
-                            _debug(f"Using unlinked object from node property {prop_name}: {selected_obj}")
+                    if candidate is None:
+                        continue
+                    if isinstance(candidate, str) and not candidate:
+                        continue
+                    selected_obj = candidate
+                    _debug(f"Using unlinked object from socket attribute {attr}: {selected_obj}")
+                    break
                 except Exception:
                     pass
             if selected_obj is None:
