@@ -7453,7 +7453,7 @@ def hippo_occ_handle_specs(obj):
     def add(kind, label, point):
         specs.append((kind, label, point.copy()))
 
-    if occ_type in {"loft", "revolve", "sweep1", "planarsrf", "edgesrf", "step", "3dm", "mesh_to_occ_surface", "exploded_face"}:
+    if occ_type in {"loft", "revolve", "sweep1", "planarsrf", "edgesrf", "step", "3dm", "mesh_to_occ_surface", "exploded_face", "sverchok_baked"}:
         sid = int(obj.get("hippo_occ_shape_id", -1))
         if sid >= 0:
             try:
@@ -7518,7 +7518,7 @@ def hippo_occ_points_on(context, obj=None):
     occ_type = obj.get("hippo_occ_type", "")
 
     # Surfaces (loft, revolve, sweep, imported): show surface control points
-    if occ_type in {"loft", "revolve", "sweep1", "planarsrf", "edgesrf", "step", "3dm", "mesh_to_occ_surface", "exploded_face"}:
+    if occ_type in {"loft", "revolve", "sweep1", "planarsrf", "edgesrf", "step", "3dm", "mesh_to_occ_surface", "exploded_face", "sverchok_baked"}:
         specs = hippo_occ_handle_specs(obj)
         if not specs:
             return False, f"No control points found for OCC type: {occ_type}"
@@ -7721,7 +7721,7 @@ def hippo_occ_points_timer():
         if parent is None:
             continue
         occ_type = parent.get("hippo_occ_type", "")
-        if occ_type in {"loft", "revolve", "sweep1", "planarsrf", "edgesrf", "step", "3dm", "mesh_to_occ_surface", "exploded_face"}:
+        if occ_type in {"loft", "revolve", "sweep1", "planarsrf", "edgesrf", "step", "3dm", "mesh_to_occ_surface", "exploded_face", "sverchok_baked"}:
             surface_parents.add(parent.name)
         else:
             hippo_occ_rebuild_from_handle(bpy.context, parent, handle)
@@ -7791,7 +7791,7 @@ def hippo_occ_draw_empty_handles_callback():
             continue
         origin = obj.location.copy()
         occ_type = obj.get("hippo_occ_type", "")
-        is_surface = occ_type in {"loft", "revolve", "sweep1", "planarsrf", "edgesrf", "step", "3dm", "mesh_to_occ_surface", "exploded_face"}
+        is_surface = occ_type in {"loft", "revolve", "sweep1", "planarsrf", "edgesrf", "step", "3dm", "mesh_to_occ_surface", "exploded_face", "sverchok_baked"}
 
         obj_handles = [h for h in bpy.data.objects
                        if hippo_occ_is_handle(h) and h.get("hippo_occ_parent") == obj.name]
