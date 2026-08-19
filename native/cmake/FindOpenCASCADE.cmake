@@ -91,6 +91,7 @@ find_path(OpenCASCADE_INCLUDE_DIR
   PATHS ${_OCCT_SEARCH_PATHS}
   PATH_SUFFIXES
     include/opencascade
+    include/OpenCASCADE
     include/occt
     include
     inc
