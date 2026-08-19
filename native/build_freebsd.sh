@@ -32,7 +32,7 @@ echo "pybind11 CMake dir: $PYBIND11_DIR"
 
 rm -rf build
 
-PLATFORM_FOLDER="freebsd-x64"
+PLATFORM_FOLDER="${HIPPO_PLATFORM_FOLDER:-freebsd-x64}"
 
 # Common FreeBSD OCCT install location
 if [ -z "${OCCT_ROOT:-}" ] && [ -d "/usr/local/include/opencascade" ]; then

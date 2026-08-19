@@ -1,4 +1,4 @@
-name: Build FreeBSD addon
+name: Build NetBSD addon
 
 on:
   workflow_dispatch:
@@ -15,10 +15,10 @@ permissions:
 env:
   TARGET_VERSION: '0.3.0'
   FLAVOR: 'wip'
-  HIPPO_PLATFORM: 'freebsd-x64'
+  HIPPO_PLATFORM: 'netbsd-x64'
 
 jobs:
-  build-freebsd:
+  build-netbsd:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -30,17 +30,17 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Start FreeBSD VM
+      - name: Start NetBSD VM
         uses: cross-platform-actions/action@v1.4.0
         with:
-          operating_system: freebsd
-          version: '15.1'
+          operating_system: netbsd
+          version: '11.0'
           architecture: x86-64
           shell: bash
           memory: 6G
           cpu_count: 4
 
-      - name: Install dependencies and build in FreeBSD VM
+      - name: Install dependencies and build in NetBSD VM
         shell: cpa.sh {0}
         env:
           TARGET_VERSION: ${{ env.TARGET_VERSION }}
@@ -49,18 +49,20 @@ jobs:
           PYTHON_VERSION: ${{ matrix.python_version }}
         run: |
           set -euo pipefail
-          export IGNORE_OSVERSION=yes
           PY_MAJOR="${PYTHON_VERSION%%.*}"
           PY_MINOR="${PYTHON_VERSION#*.}"
           PY_TAG="${PY_MAJOR}${PY_MINOR}"
-          sudo pkg install -y git cmake ninja "python${PY_TAG}" "py${PY_TAG}-pybind11" opencascade zip
+
+          # NetBSD package collection names
+          pkgin -y install git cmake ninja "python${PY_TAG}" "py${PY_TAG}-pybind11" opencascade zip
 
           cd "$GITHUB_WORKSPACE/native/third_party/opennurbs"
           git fetch origin
           git checkout 2fc39db962678b44ee710f887a04fc38f8d4b883
 
+          # Build native module using the generic BSD build script
           cd "$GITHUB_WORKSPACE/native"
-          PYTHON_BIN="/usr/local/bin/python${PYTHON_VERSION}" BUNDLE_AUTO=1 ./build_freebsd.sh
+          HIPPO_PLATFORM_FOLDER="netbsd-x64" PYTHON_BIN="/usr/pkg/bin/python${PYTHON_VERSION}" BUNDLE_AUTO=1 ./build_freebsd.sh
 
           cd "$GITHUB_WORKSPACE/native"
           VERSION="$TARGET_VERSION" FLAVOR="$FLAVOR" PLATFORM="$HIPPO_PLATFORM" ZIP_BASE="Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${HIPPO_PLATFORM}-python${PY_TAG}" ./package_bsd.sh
