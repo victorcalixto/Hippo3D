@@ -61,54 +61,58 @@ jobs:
         shell: pwsh
         run: |
           $occtBase = "C:\OCCT"
+          $thirdPartyBase = "C:\OCCT3rdparty"
           New-Item -ItemType Directory -Force -Path $occtBase | Out-Null
+          New-Item -ItemType Directory -Force -Path $thirdPartyBase | Out-Null
 
-          # Try the installer EXE first, then fall back to a 7z archive if GitHub
-          # hosts one for this release.
-          $exeUrl = "https://github.com/Open-Cascade-SAS/OCCT/releases/download/V8_0_0/opencascade-${env:OCCT_VERSION}-vc14-64.exe"
-          $7zUrl  = "https://github.com/Open-Cascade-SAS/OCCT/releases/download/V8_0_0/opencascade-${env:OCCT_VERSION}-vc14-64.7z"
-          $installer = "$env:TEMP\opencascade-${env:OCCT_VERSION}-vc14-64.exe"
-          $archive   = "$env:TEMP\opencascade-${env:OCCT_VERSION}-vc14-64.7z"
+          # OCCT no longer ships the old vc14-64 installer/7z on GitHub releases.
+          # The prebuilt Windows binaries are now published as zip archives.
+          $occtZip = "https://github.com/Open-Cascade-SAS/OCCT/releases/download/V8_0_0/opencascade-release-no-pch.zip"
+          $thirdPartyZip = "https://github.com/Open-Cascade-SAS/OCCT/releases/download/V8_0_0/3rdparty-vc14-64.zip"
+          $occtArchive = "$env:TEMP\opencascade-release-no-pch.zip"
+          $thirdPartyArchive = "$env:TEMP\3rdparty-vc14-64.zip"
 
-          $installed = $false
-          try {
-            curl.exe -L -o $installer $exeUrl --max-time 300
-            if (Test-Path $installer) {
-              Start-Process -FilePath $installer -ArgumentList "/S","/D=$occtBase" -Wait
-              $installed = $true
-            }
-          } catch {
-            Write-Warning "OCCT installer download failed: $_"
+          # Download OCCT release binaries
+          curl.exe -L -o $occtArchive $occtZip --max-time 600
+          if (-not (Test-Path $occtArchive)) { throw "Failed to download OCCT release binaries" }
+
+          # Download 3rdparty binaries (FreeImage, FreeType, TBB, etc.)
+          curl.exe -L -o $thirdPartyArchive $thirdPartyZip --max-time 600
+          if (-not (Test-Path $thirdPartyArchive)) { throw "Failed to download OCCT 3rdparty binaries" }
+
+          # Extract with PowerShell (Expand-Archive) since 7z is not guaranteed
+          Expand-Archive -Path $occtArchive -DestinationPath $occtBase -Force
+          Expand-Archive -Path $thirdPartyArchive -DestinationPath $thirdPartyBase -Force
+
+          # The zip extracts into a subfolder named after the archive contents;
+          # locate the actual OCCT root by searching for the headers.
+          $occtRoot = (Get-ChildItem -Path $occtBase -Recurse -Filter "BRepPrimAPI_MakeBox.hxx" | Select-Object -First 1).DirectoryName
+          if (-not $occtRoot) {
+            throw "OCCT headers not found under $occtBase"
           }
-
-          if (-not $installed) {
-            try {
-              curl.exe -L -o $archive $7zUrl --max-time 300
-              if (Test-Path $archive) {
-                # 7z is preinstalled on windows-latest runners
-                & 7z.exe x $archive -oC:\ -y
-                $installed = $true
-              }
-            } catch {
-              Write-Warning "OCCT 7z download failed: $_"
-            }
-          }
-
-          if (-not $installed) {
-            throw "Could not download or install OCCT ${env:OCCT_VERSION}."
-          }
-
-          $occtRoot = "$occtBase\opencascade-${env:OCCT_VERSION}-vc14-64"
+          $occtRoot = Split-Path $occtRoot -Parent
           if (-not (Test-Path "$occtRoot\inc\BRepPrimAPI_MakeBox.hxx")) {
             throw "OCCT headers not found at $occtRoot"
           }
+
+          # 3rdparty folder should live next to the OCCT root (or as a sibling)
+          $occtParent = Split-Path $occtRoot -Parent
+          $thirdPartyDir = Join-Path $occtParent "3rdparty-vc14-64"
+          if (-not (Test-Path $thirdPartyDir)) {
+            # Fallback: search under the extraction base
+            $thirdPartyDir = (Get-ChildItem -Path $thirdPartyBase -Directory | Select-Object -First 1).FullName
+          }
+
           "OCCT_ROOT=$occtRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "3RDPARTY_DIR=$thirdPartyDir" | Out-File -FilePath $env:GITHUB_ENV -Append
           Write-Host "OCCT_ROOT=$occtRoot"
+          Write-Host "3RDPARTY_DIR=$thirdPartyDir"
 
       - name: Build Hippo3D native module
         shell: pwsh
         run: |
           $env:OCCT_ROOT = $env:OCCT_ROOT
+          $env:3RDPARTY_DIR = $env:3RDPARTY_DIR
           cd native
           .\build_windows.ps1 -PythonExecutable (Get-Command python).Source -PlatformFolder "$env:PLATFORM"
 
