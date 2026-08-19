@@ -57,6 +57,20 @@ jobs:
           Write-Host "PYTHON_DEV_DIR=$dev"
           "PYTHON_DEV_DIR=$dev" | Out-File -FilePath $env:GITHUB_ENV -Append
 
+      - name: Install Visual Studio Build Tools
+        shell: pwsh
+        run: |
+          # Download and run the VS Build Tools installer silently with the C++ workload.
+          $vsbtUrl = "https://aka.ms/vs/17/release/vs_BuildTools.exe"
+          $installer = "$env:TEMP\vs_BuildTools.exe"
+          curl.exe -L -o $installer $vsbtUrl --max-time 300
+          if (-not (Test-Path $installer)) { throw "Failed to download VS Build Tools" }
+          Start-Process -FilePath $installer -ArgumentList "--quiet","--wait","--add","Microsoft.VisualStudio.Workload.VCTools","--includeRecommended" -Wait
+          # Verify cl is now available
+          if (-not (Get-Command cl -ErrorAction SilentlyContinue)) {
+            throw "cl.exe not found after installing VS Build Tools"
+          }
+
       - name: Download and install OCCT ${{ env.OCCT_VERSION }}
         shell: pwsh
         run: |

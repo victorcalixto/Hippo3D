@@ -276,9 +276,16 @@ if ($Toolchain -eq "MSVC") {
     if ($ninja -and $cl) {
         $generator = "Ninja Multi-Config"
     } else {
-        $generator = "Visual Studio 17 2022"
+        $vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+        if (Test-Path $vsWhere) {
+            $generator = "Visual Studio 17 2022"
+        } else {
+            # No VS installed; try a full MinGW build instead of failing.
+            $Toolchain = "MinGW"
+        }
     }
-} else {
+}
+if ($Toolchain -eq "MinGW") {
     $generator = "MinGW Makefiles"
 }
 
