@@ -164,24 +164,72 @@ def _linux_libs(module: Path):
 
 
 def _macos_libs(module: Path):
-    """Return list of absolute OCCT .dylib paths using otool -L."""
+    """Return list of absolute OCCT .dylib paths using otool -L.
+
+    OCCT libraries are usually referenced as @rpath/libTK<...>.8.0.dylib.  We
+    resolve those against the OCCT installation root (OCCT_ROOT) and its lib/
+    directory, and also collect any absolute-path OCCT references.
+    """
     try:
         out = subprocess.check_output(["otool", "-L", str(module)], text=True)
     except FileNotFoundError:
         print("Error: 'otool' not found. Cannot discover linked libraries.")
         return []
+
+    script_dir = Path(__file__).resolve().parent
+    search_dirs = []
+
+    occt_root_env = os.environ.get("OCCT_ROOT", "")
+    if occt_root_env:
+        search_dirs.append(Path(occt_root_env) / "lib")
+        search_dirs.append(Path(occt_root_env))
+
+    # Local per-architecture OCCT builds
+    machine = platform.machine().lower()
+    arch = "arm64" if ("arm" in machine or "aarch64" in machine) else "x86_64"
+    search_dirs.append(script_dir / "third_party" / f"occt-8.0.0-{arch}" / "lib")
+    search_dirs.append(script_dir / "third_party" / "occt-8.0.0" / "lib")
+
+    # Homebrew installs
+    for brew in ("/opt/homebrew/opt/opencascade", "/usr/local/opt/opencascade"):
+        search_dirs.append(Path(brew) / "lib")
+
     libs = []
+    seen = set()
+
+    def _resolve(name: str):
+        for d in search_dirs:
+            candidate = d / name
+            if candidate.is_file():
+                return candidate.resolve()
+        return None
+
     for line in out.splitlines()[1:]:  # skip first line (self reference)
         parts = line.strip().split()
         if not parts:
             continue
         path = parts[0]
+
+        # Resolve @rpath references against the candidate OCCT directories.
+        if path.startswith("@rpath/"):
+            name = path[len("@rpath/"):]
+            if any(k in name for k in ("libTK", "libTKernel")):
+                real = _resolve(name)
+                if real and real not in seen:
+                    seen.add(real)
+                    libs.append(real)
+            continue
+
+        # Skip other special names.
         if path.startswith("@"):
-            continue  # skip @rpath, @loader_path, @executable_path
-        # Absolute path — check if it smells like OCCT
-        p = Path(path)
-        if any(k in p.name for k in ("libTK", "libTKernel")):
+            continue
+
+        # Absolute path — check if it smells like OCCT.
+        p = Path(path).resolve()
+        if any(k in p.name for k in ("libTK", "libTKernel")) and p not in seen:
+            seen.add(p)
             libs.append(p)
+
     return libs
 
 

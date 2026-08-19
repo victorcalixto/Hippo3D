@@ -81,6 +81,16 @@ fi
 mkdir -p "$PLATFORM_FOLDER"
 cp "$MODULE_PATH" "$PLATFORM_FOLDER/hippo_occ_core.so"
 
+# ---------------------------------------------------------------------------
+# Auto-bundle OCCT libraries for standalone distribution
+# ---------------------------------------------------------------------------
+BUNDLE_AUTO="${BUNDLE_AUTO:-1}"
+if [ "$BUNDLE_AUTO" = "1" ]; then
+    echo
+    echo "Auto-bundling OCCT shared libraries..."
+    "$PYTHON_BIN" "$SCRIPT_DIR/bundle_occt.py" --platform "$PLATFORM_FOLDER" || echo "Warning: bundle_occt.py failed. Continuing anyway."
+fi
+
 echo
 echo "Build complete."
 echo "Development module:"

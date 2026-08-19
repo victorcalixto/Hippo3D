@@ -79,10 +79,11 @@ jobs:
           OSX_ARCH: ${{ matrix.arch }}
           PLATFORM_FOLDER: ${{ matrix.platform }}
           PYTHON_VERSION: ${{ matrix.python_version }}
+          OCCT_ROOT: ${{ env.OCCT_ROOT }}
         run: |
           chmod +x native/build_macos.sh
           cd native
-          OSX_ARCH="${OSX_ARCH}" PLATFORM_FOLDER="${PLATFORM_FOLDER}" DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET}" PYTHON_BIN="${PYTHON_BIN}" ./build_macos.sh
+          OSX_ARCH="${OSX_ARCH}" PLATFORM_FOLDER="${PLATFORM_FOLDER}" DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET}" PYTHON_BIN="${PYTHON_BIN}" BUNDLE_AUTO=1 ./build_macos.sh
 
       - name: Package add-on for ${{ matrix.arch }}
         env:
