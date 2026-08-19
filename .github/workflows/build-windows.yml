@@ -16,7 +16,7 @@ env:
   OCCT_VERSION: '8.0.0'
   TARGET_VERSION: '0.3.0'
   FLAVOR: 'wip'
-  PLATFORM: 'windows-x64'
+  HIPPO_PLATFORM: 'windows-x64'
 
 jobs:
   build-windows:
@@ -138,30 +138,30 @@ jobs:
           $env:OCCT_ROOT = $env:OCCT_ROOT
           $env:3RDPARTY_DIR = $env:3RDPARTY_DIR
           cd native
-          .\build_windows.ps1 -PythonExecutable (Get-Command python).Source -PlatformFolder "$env:PLATFORM"
+          .\build_windows.ps1 -PythonExecutable (Get-Command python).Source -PlatformFolder "$env:HIPPO_PLATFORM"
 
       - name: Package add-on
         shell: pwsh
         run: |
           $parts = "${{ matrix.python_version }}".Split(".")
           $pyShort = $parts[0] + $parts[1]
-          $zipName = "Hippo3D-v${env:TARGET_VERSION}-${env:FLAVOR}-${env:PLATFORM}-python${pyShort}"
-          .\package_addon.ps1 -Platform "$env:PLATFORM" -ZipName "$zipName"
+          $zipName = "Hippo3D-v${env:TARGET_VERSION}-${env:FLAVOR}-${env:HIPPO_PLATFORM}-python${pyShort}"
+          .\package_addon.ps1 -Platform "$env:HIPPO_PLATFORM" -ZipName "$zipName"
 
       - name: Verify ZIP exists
         shell: pwsh
         run: |
           $parts = "${{ matrix.python_version }}".Split(".")
           $pyShort = $parts[0] + $parts[1]
-          $zip = "dist\Hippo3D-v${env:TARGET_VERSION}-${env:FLAVOR}-${env:PLATFORM}-python${pyShort}.zip"
+          $zip = "dist\Hippo3D-v${env:TARGET_VERSION}-${env:FLAVOR}-${env:HIPPO_PLATFORM}-python${pyShort}.zip"
           if (-not (Test-Path $zip)) { throw "ZIP not found: $zip" }
           Get-Item $zip
 
       - name: Upload ZIP as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.PLATFORM }}-python${{ matrix.python_version }}-addon
-          path: dist\Hippo3D-v${{ env.TARGET_VERSION }}-${{ env.FLAVOR }}-${{ env.PLATFORM }}-python*.zip
+          name: ${{ env.HIPPO_PLATFORM }}-python${{ matrix.python_version }}-addon
+          path: dist\Hippo3D-v${{ env.TARGET_VERSION }}-${{ env.FLAVOR }}-${{ env.HIPPO_PLATFORM }}-python*.zip
 
       - name: Upload to GitHub release
         if: github.event.inputs.upload_to_release == 'true'
@@ -171,4 +171,4 @@ jobs:
         run: |
           $parts = "${{ matrix.python_version }}".Split(".")
           $pyShort = $parts[0] + $parts[1]
-          gh release upload "wip-${env:TARGET_VERSION}" "dist\Hippo3D-v${env:TARGET_VERSION}-${env:FLAVOR}-${env:PLATFORM}-python${pyShort}.zip" --clobber
+          gh release upload "wip-${env:TARGET_VERSION}" "dist\Hippo3D-v${env:TARGET_VERSION}-${env:FLAVOR}-${env:HIPPO_PLATFORM}-python${pyShort}.zip" --clobber
