@@ -214,12 +214,12 @@ pybind11_add_module(hippo_occ_core
     src/occ_primitives.cpp
     src/occ_registry.cpp
     src/occ_step.cpp
-    src/occ_serp.cpp
     src/occ_3dm.cpp
     src/occ_curves.cpp
     src/occ_surface_ops.cpp
     src/occ_boolean.cpp
     src/occ_trim.cpp
+    src/occ_serp.cpp
     src/occ_solid_ops.cpp
 )
 
