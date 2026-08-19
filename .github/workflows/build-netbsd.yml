@@ -53,9 +53,9 @@ jobs:
           PY_MINOR="${PYTHON_VERSION#*.}"
           PY_TAG="${PY_MAJOR}${PY_MINOR}"
 
-          # NetBSD package collection names
+          # NetBSD package collection names. OCCT is packaged as 'occt'.
           # pybind11 is installed via pip inside the build script if needed.
-          pkgin -y install git cmake ninja "python${PY_TAG}" opencascade zip
+          pkgin -y install git cmake ninja "python${PY_TAG}" occt zip
 
           cd "$GITHUB_WORKSPACE/native/third_party/opennurbs"
           git fetch origin
@@ -64,7 +64,8 @@ jobs:
           # Build native module using the generic BSD build script
           cd "$GITHUB_WORKSPACE/native"
           chmod +x ./build_freebsd.sh ./package_bsd.sh
-          HIPPO_PLATFORM_FOLDER="netbsd-x64" PYTHON_BIN="/usr/pkg/bin/python${PYTHON_VERSION}" BUNDLE_AUTO=1 ./build_freebsd.sh
+          PY_SHORT="${PYTHON_VERSION%.*}"
+          HIPPO_PLATFORM_FOLDER="netbsd-x64" PYTHON_BIN="/usr/pkg/bin/python${PY_SHORT}" BUNDLE_AUTO=1 ./build_freebsd.sh
 
           cd "$GITHUB_WORKSPACE/native"
           VERSION="$TARGET_VERSION" FLAVOR="$FLAVOR" PLATFORM="$HIPPO_PLATFORM" ZIP_BASE="Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${HIPPO_PLATFORM}-python${PY_TAG}" ./package_bsd.sh

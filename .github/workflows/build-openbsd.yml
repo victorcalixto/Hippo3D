@@ -23,7 +23,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python_version: ['3.11', '3.13']
+        # OpenBSD 7.9 only ships python-3.13.13 in packages.
+        python_version: ['3.13.13']
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -52,18 +53,20 @@ jobs:
           PY_MAJOR="${PYTHON_VERSION%%.*}"
           PY_MINOR="${PYTHON_VERSION#*.}"
           PY_TAG="${PY_MAJOR}${PY_MINOR}"
+          PY_SHORT="${PYTHON_VERSION%.*}"
 
           # OpenBSD ships OCCT 7.9.x in ports; the Hippo3D CMake will use the
           # system OpenCASCADE if no local OCCT 8.0.0 is present.
           # pybind11 is installed via pip inside the build script if needed.
-          pkg_add git cmake ninja "python--%${PYTHON_VERSION}" opencascade zip
+          pkg_add -I git cmake ninja "python-${PYTHON_VERSION}" opencascade zip
 
           cd "$GITHUB_WORKSPACE/native/third_party/opennurbs"
           git fetch origin
           git checkout 2fc39db962678b44ee710f887a04fc38f8d4b883
 
           cd "$GITHUB_WORKSPACE/native"
-          PYTHON_BIN="/usr/local/bin/python${PYTHON_VERSION}" BUNDLE_AUTO=1 ./build_openbsd.sh
+          chmod +x ./build_openbsd.sh ./package_bsd.sh
+          PYTHON_BIN="/usr/local/bin/python${PY_SHORT}" BUNDLE_AUTO=1 ./build_openbsd.sh
 
           cd "$GITHUB_WORKSPACE/native"
           chmod +x ./package_bsd.sh
