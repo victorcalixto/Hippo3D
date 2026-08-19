@@ -370,8 +370,43 @@ def _windows_libs(module: Path):
     return libs
 
 
+def _set_origin_rpath(path: Path):
+    """Set RUNPATH/RPATH to $ORIGIN so a shared library finds its neighbors."""
+    system = platform.system().lower()
+    if system not in ("linux", "freebsd", "openbsd"):
+        return
+    # Prefer patchelf, fall back to chrpath.
+    if shutil.which("patchelf"):
+        try:
+            subprocess.run(
+                ["patchelf", "--set-rpath", "$ORIGIN", str(path)],
+                check=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"Warning: patchelf failed for {path}: {e.stderr.decode().strip()}")
+    elif shutil.which("chrpath"):
+        try:
+            subprocess.run(
+                ["chrpath", "-r", "$ORIGIN", str(path)],
+                check=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"Warning: chrpath failed for {path}: {e.stderr.decode().strip()}")
+
+
 def _copy_libs(libs, dest: Path):
-    """Copy libraries into dest, resolving symlinks on Unix."""
+    """Copy libraries into dest, resolving symlinks on Unix.
+
+    On Linux/BSD the dynamic linker resolves a library by its SONAME, not the
+    real filename.  The OCCT packages install e.g. libTKernel.so.8.0.0 with
+    SONAME libTKernel.so.8.0, so we also create the SONAME symlink next to the
+    real file so the loader can find it at runtime.
+
+    We also set each real library's RPATH/RUNPATH to $ORIGIN so the bundled
+    libraries can resolve each other without relying on LD_LIBRARY_PATH.
+    """
     copied = []
     dest.mkdir(parents=True, exist_ok=True)
     for lib in libs:
@@ -380,10 +415,27 @@ def _copy_libs(libs, dest: Path):
         # Resolve symlink so we bundle the real file
         real = lib.resolve()
         out = dest / real.name
-        if out.exists():
-            continue
-        shutil.copy2(str(real), str(out))
-        copied.append(out)
+        if not out.exists():
+            shutil.copy2(str(real), str(out))
+            _set_origin_rpath(out)
+            copied.append(out)
+
+        # Create the SONAME symlink on ELF platforms.
+        if platform.system().lower() in ("linux", "freebsd", "openbsd"):
+            try:
+                soname = subprocess.check_output(
+                    ["readelf", "-d", str(real)], text=True
+                )
+            except (FileNotFoundError, subprocess.CalledProcessError):
+                soname = ""
+            for line in soname.splitlines():
+                if "SONAME" in line and "[" in line and "]" in line:
+                    name = line.split("[", 1)[1].split("]", 1)[0]
+                    link = dest / name
+                    if not link.exists() and name != real.name:
+                        link.symlink_to(real.name)
+                        copied.append(link)
+                    break
     return copied
 
 
