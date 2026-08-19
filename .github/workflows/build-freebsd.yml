@@ -68,6 +68,7 @@ jobs:
           git checkout 2fc39db962678b44ee710f887a04fc38f8d4b883
 
           cd "$GITHUB_WORKSPACE/native"
+          chmod +x ./build_freebsd.sh
           PYTHON_BIN="/usr/local/bin/python${PYTHON_VERSION}" BUNDLE_AUTO=1 ./build_freebsd.sh
 
           cd "$GITHUB_WORKSPACE/native"
