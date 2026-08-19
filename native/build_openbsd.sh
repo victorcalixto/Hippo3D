@@ -39,6 +39,16 @@ if [ -z "${OCCT_ROOT:-}" ] && [ -d "/usr/local/include/opencascade" ]; then
     echo "Auto-detected OpenBSD OCCT: $OCCT_ROOT"
 fi
 
+# OpenNURBS assumes any non-Apple/Android/WASM platform has fcloseall().
+# OpenBSD does not, so treat BSDs the same as Apple/Android/WASM for ON::CloseAllFiles().
+ON_DEFINES="$SCRIPT_DIR/third_party/opennurbs/opennurbs_defines.cpp"
+if [ -f "$ON_DEFINES" ]; then
+    sed -i.bak \
+        -e 's/#elif defined(ON_RUNTIME_APPLE) || defined(ON_RUNTIME_ANDROID) || defined(ON_RUNTIME_WASM)/#elif defined(ON_RUNTIME_APPLE) || defined(ON_RUNTIME_ANDROID) || defined(ON_RUNTIME_WASM) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)/' \
+        "$ON_DEFINES"
+    rm -f "$ON_DEFINES.bak"
+fi
+
 cmake -S . -B build -G Ninja \
     -DPython_EXECUTABLE="$PYTHON_BIN" \
     -DPYTHON_EXECUTABLE="$PYTHON_BIN" \
