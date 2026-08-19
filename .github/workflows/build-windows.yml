@@ -80,12 +80,15 @@ jobs:
           curl.exe -L -o $thirdPartyArchive $thirdPartyZip --max-time 600
           if (-not (Test-Path $thirdPartyArchive)) { throw "Failed to download OCCT 3rdparty binaries" }
 
-          # Extract with PowerShell (Expand-Archive) since 7z is not guaranteed
-          Expand-Archive -Path $occtArchive -DestinationPath $occtBase -Force
-          Expand-Archive -Path $thirdPartyArchive -DestinationPath $thirdPartyBase -Force
+          # Extract the nested zips into known folders. The release zip contains a
+          # single inner zip that extracts to opencascade-X.X.X-vc14-64/.
+          Expand-Archive -Path $occtArchive -DestinationPath "$env:TEMP\occt_extract" -Force
+          Expand-Archive -Path $thirdPartyArchive -DestinationPath "$thirdPartyBase" -Force
 
-          # The zip extracts into a subfolder named after the archive contents;
-          # locate the actual OCCT root by searching for the headers.
+          $innerOcct = (Get-ChildItem -Path "$env:TEMP\occt_extract" -Filter "*.zip" | Select-Object -First 1).FullName
+          Expand-Archive -Path $innerOcct -DestinationPath $occtBase -Force
+
+          # Locate the actual OCCT root by searching for the headers.
           $occtRoot = (Get-ChildItem -Path $occtBase -Recurse -Filter "BRepPrimAPI_MakeBox.hxx" | Select-Object -First 1).DirectoryName
           if (-not $occtRoot) {
             throw "OCCT headers not found under $occtBase"
