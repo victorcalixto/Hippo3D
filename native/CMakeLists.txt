@@ -95,27 +95,16 @@ find_package(OpenCASCADE REQUIRED)
 # ---------------------------------------------------------------------------
 set(OPENNURBS_DIR "${CMAKE_SOURCE_DIR}/third_party/opennurbs")
 
-# On Windows the upstream opennurbs CMakeLists only builds android_uuid/freetype263
-# for (ANDROID OR LINUX), so on WIN32 we must force them on as well or the link
-# step will be missing those static archives.  On macOS the LINUX branch is taken
-# by default and builds correctly because POSIX headers are available.
-if(WIN32)
-    set(OPENNURBS_BUILD_ON_WINDOWS ON CACHE BOOL "Build android_uuid/freetype263 on Windows" FORCE)
-endif()
-
 # The upstream opennurbs CMakeLists only enters android_uuid/freetype263 when
-# ANDROID OR LINUX is true.  We need those subdirs on Linux, macOS and Windows.
-# On macOS we must NOT set ANDROID=ON, otherwise opennurbsStatic links against
-# the non-existent 'android' system library and the Darwin link fails.
-if(OPENNURBS_BUILD_ON_WINDOWS)
-    set(_orig_ANDROID "${ANDROID}")
-    set(_orig_LINUX "${LINUX}")
-    set(ANDROID ON CACHE BOOL "" FORCE)
-    set(LINUX ON CACHE BOOL "" FORCE)
-elseif(APPLE)
+# ANDROID OR LINUX is true.  We need those subdirs on Linux and macOS.  On
+# macOS we must NOT set ANDROID=ON, otherwise opennurbsStatic links against the
+# non-existent 'android' system library and the Darwin link fails.
+# On Windows we leave the upstream WIN32 branch alone; that branch only links
+# zlib + Shlwapi + Usp10 and does not require freetype263/android_uuid.
+if(APPLE)
     set(_orig_LINUX "${LINUX}")
     set(LINUX ON CACHE BOOL "" FORCE)
-elseif(UNIX)
+elseif(UNIX AND NOT APPLE)
     set(_orig_LINUX "${LINUX}")
     set(LINUX ON CACHE BOOL "" FORCE)
 endif()
@@ -138,10 +127,7 @@ if(TARGET opennurbs_public_freetype)
     set_target_properties(opennurbs_public_freetype PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()
 
-if(OPENNURBS_BUILD_ON_WINDOWS)
-    set(ANDROID "${_orig_ANDROID}" CACHE BOOL "" FORCE)
-    set(LINUX "${_orig_LINUX}" CACHE BOOL "" FORCE)
-elseif(APPLE OR UNIX)
+if(APPLE OR (UNIX AND NOT APPLE))
     set(LINUX "${_orig_LINUX}" CACHE BOOL "" FORCE)
 endif()
 

@@ -13,7 +13,7 @@ permissions:
   contents: write
 
 env:
-  PYTHON_VERSION: '3.13.9'
+  PYTHON_VERSION: '3.13.13'
   OCCT_VERSION: '8.0.0'
   TARGET_VERSION: '0.3.0'
   FLAVOR: 'wip'
