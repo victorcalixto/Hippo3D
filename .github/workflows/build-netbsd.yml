@@ -63,6 +63,7 @@ jobs:
 
           # Build native module using the generic BSD build script
           cd "$GITHUB_WORKSPACE/native"
+          chmod +x ./build_freebsd.sh ./package_bsd.sh
           HIPPO_PLATFORM_FOLDER="netbsd-x64" PYTHON_BIN="/usr/pkg/bin/python${PYTHON_VERSION}" BUNDLE_AUTO=1 ./build_freebsd.sh
 
           cd "$GITHUB_WORKSPACE/native"

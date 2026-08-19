@@ -79,7 +79,7 @@ BUNDLE_AUTO="${BUNDLE_AUTO:-1}"
 if [ "$BUNDLE_AUTO" = "1" ]; then
     echo
     echo "Auto-bundling OCCT shared libraries..."
-    python3 "$SCRIPT_DIR/bundle_occt.py" --platform "$PLATFORM_FOLDER" || echo "Warning: bundle_occt.py failed. Continuing anyway."
+    "$PYTHON_BIN" "$SCRIPT_DIR/bundle_occt.py" --platform "$PLATFORM_FOLDER" || echo "Warning: bundle_occt.py failed. Continuing anyway."
 fi
 
 echo

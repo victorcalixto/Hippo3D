@@ -72,6 +72,7 @@ jobs:
           PYTHON_BIN="/usr/local/bin/python${PYTHON_VERSION}" BUNDLE_AUTO=1 ./build_freebsd.sh
 
           cd "$GITHUB_WORKSPACE/native"
+          chmod +x ./package_bsd.sh
           VERSION="$TARGET_VERSION" FLAVOR="$FLAVOR" PLATFORM="$HIPPO_PLATFORM" ZIP_BASE="Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${HIPPO_PLATFORM}-python${PY_TAG}" ./package_bsd.sh
 
       - name: Verify ZIP exists
