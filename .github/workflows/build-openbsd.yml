@@ -57,15 +57,7 @@ jobs:
 
           # OpenBSD ships OCCT 7.9.x in ports; the Hippo3D CMake will use the
           # system OpenCASCADE if no local OCCT 8.0.0 is present.
-          # pybind11 is installed via pip inside the build script if needed.
-          sudo pkg_add -I git cmake ninja "python-${PYTHON_VERSION}" opencascade zip
-
-          # OpenBSD's python package does not include pip. Bootstrap it so
-          # pybind11 can be installed inside the build script.
-          "python${PY_SHORT}" -m ensurepip --upgrade || {
-            ftp -o /tmp/get-pip.py "https://bootstrap.pypa.io/get-pip.py"
-            "python${PY_SHORT}" /tmp/get-pip.py --break-system-packages
-          }
+          sudo pkg_add -I git cmake ninja "python-${PYTHON_VERSION}" py3-pybind11 opencascade zip
 
           cd "$GITHUB_WORKSPACE/native/third_party/opennurbs"
           git fetch origin

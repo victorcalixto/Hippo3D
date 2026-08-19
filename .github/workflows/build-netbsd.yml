@@ -54,15 +54,7 @@ jobs:
           PY_TAG="${PY_MAJOR}${PY_MINOR}"
 
           # NetBSD package collection names. OCCT is packaged as 'occt'.
-          # pybind11 is installed via pip inside the build script if needed.
-          sudo pkgin -y install git cmake ninja "python${PY_TAG}" occt zip
-
-          # NetBSD's python package may not include pip. Bootstrap it so
-          # pybind11 can be installed inside the build script.
-          "python${PY_SHORT}" -m ensurepip --upgrade || {
-            ftp -o /tmp/get-pip.py "https://bootstrap.pypa.io/get-pip.py"
-            "python${PY_SHORT}" /tmp/get-pip.py --break-system-packages
-          }
+          sudo pkgin -y install git cmake ninja "python${PY_TAG}" "py${PY_TAG}-pybind11" occt zip
 
           cd "$GITHUB_WORKSPACE/native/third_party/opennurbs"
           git fetch origin
