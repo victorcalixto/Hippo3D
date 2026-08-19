@@ -41,7 +41,7 @@ jobs:
           cpu_count: 4
 
       - name: Install dependencies and build in OpenBSD VM
-        shell: cpa.sh {0}
+        shell: cpa.sh {0} --environment-variables TARGET_VERSION FLAVOR HIPPO_PLATFORM PYTHON_VERSION
         env:
           TARGET_VERSION: ${{ env.TARGET_VERSION }}
           FLAVOR: ${{ env.FLAVOR }}
