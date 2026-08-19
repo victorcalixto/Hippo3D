@@ -102,17 +102,46 @@ set(OPENNURBS_DIR "${CMAKE_SOURCE_DIR}/third_party/opennurbs")
 if(WIN32)
     set(OPENNURBS_BUILD_ON_WINDOWS ON CACHE BOOL "Build android_uuid/freetype263 on Windows" FORCE)
 endif()
-if(OPENNURBS_BUILD_ON_WINDOWS OR APPLE)
+
+# The upstream opennurbs CMakeLists only enters android_uuid/freetype263 when
+# ANDROID OR LINUX is true.  We need those subdirs on Linux, macOS and Windows.
+# On macOS we must NOT set ANDROID=ON, otherwise opennurbsStatic links against
+# the non-existent 'android' system library and the Darwin link fails.
+if(OPENNURBS_BUILD_ON_WINDOWS)
     set(_orig_ANDROID "${ANDROID}")
     set(_orig_LINUX "${LINUX}")
     set(ANDROID ON CACHE BOOL "" FORCE)
+    set(LINUX ON CACHE BOOL "" FORCE)
+elseif(APPLE)
+    set(_orig_LINUX "${LINUX}")
+    set(LINUX ON CACHE BOOL "" FORCE)
+elseif(UNIX)
+    set(_orig_LINUX "${LINUX}")
     set(LINUX ON CACHE BOOL "" FORCE)
 endif()
 
 add_subdirectory(${OPENNURBS_DIR} ${CMAKE_BINARY_DIR}/opennurbs)
 
-if(OPENNURBS_BUILD_ON_WINDOWS OR APPLE)
+# The upstream opennurbs static library is not built with -fPIC by default, but
+# we link it into a shared Python module.  Force position-independent code on the
+# targets we consume so the final link succeeds on Linux/BSD.
+if(TARGET opennurbsStatic)
+    set_target_properties(opennurbsStatic PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
+if(TARGET zlib)
+    set_target_properties(zlib PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
+if(TARGET android_uuid)
+    set_target_properties(android_uuid PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
+if(TARGET opennurbs_public_freetype)
+    set_target_properties(opennurbs_public_freetype PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
+
+if(OPENNURBS_BUILD_ON_WINDOWS)
     set(ANDROID "${_orig_ANDROID}" CACHE BOOL "" FORCE)
+    set(LINUX "${_orig_LINUX}" CACHE BOOL "" FORCE)
+elseif(APPLE OR UNIX)
     set(LINUX "${_orig_LINUX}" CACHE BOOL "" FORCE)
 endif()
 
