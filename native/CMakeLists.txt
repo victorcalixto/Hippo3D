@@ -149,7 +149,7 @@ endif()
 # to use the Linux code path (which in turn enables the bundled android_uuid
 # header and defines wchar_t/endianness) when building on BSD.
 if(CMAKE_SYSTEM_NAME MATCHES "^(FreeBSD|OpenBSD|NetBSD)$")
-    foreach(_on_target IN ITEMS opennurbsStatic OpenNURBS)
+    foreach(_on_target IN ITEMS opennurbsStatic OpenNURBS zlib android_uuid opennurbs_public_freetype)
         if(TARGET ${_on_target})
             target_compile_definitions(${_on_target} PRIVATE ON_RUNTIME_LINUX)
         endif()
