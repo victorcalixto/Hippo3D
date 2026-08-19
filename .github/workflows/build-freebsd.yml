@@ -54,7 +54,7 @@ jobs:
           PY_MINOR="${PYTHON_VERSION#*.}"
           PY_TAG="${PY_MAJOR}${PY_MINOR}"
           # pybind11 is installed via pip inside the build script if needed.
-          sudo pkg install -y git cmake ninja "python${PY_TAG}" opencascade zip
+          sudo pkg install -y git cmake ninja "python${PY_TAG}" "py${PY_TAG}-pip" opencascade zip
 
           cd "$GITHUB_WORKSPACE/native/third_party/opennurbs"
           git fetch origin
