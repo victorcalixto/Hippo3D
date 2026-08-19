@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python_version: ['3.11.12', '3.13.13']
+        python_version: ['3.11.9', '3.13.13']
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
