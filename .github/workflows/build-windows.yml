@@ -1,0 +1,139 @@
+name: Build Windows addon
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_to_release:
+        description: 'Upload ZIP to the wip-0.3.0 GitHub release'
+        required: false
+        default: 'true'
+        type: boolean
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: '3.13.9'
+  OCCT_VERSION: '8.0.0'
+  TARGET_VERSION: '0.3.0'
+  FLAVOR: 'wip'
+  PLATFORM: 'windows-x64'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The repo currently references an opennurbs commit that does not exist on
+      # the public remote. Reset to the last known buildable commit.
+      - name: Fix opennurbs submodule
+        shell: bash
+        run: |
+          cd native/third_party/opennurbs
+          git fetch origin
+          git checkout 2fc39db962678b44ee710f887a04fc38f8d4b883
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install pybind11
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip pybind11
+
+      # The build needs python313.lib. actions/setup-python does install the
+      # full Python dev tree on Windows, so expose it to the build script.
+      - name: Expose Python dev tree
+        shell: pwsh
+        run: |
+          $py = (Get-Command python).Source
+          $dev = Split-Path $py -Parent | Split-Path -Parent
+          Write-Host "PYTHON_DEV_DIR=$dev"
+          "PYTHON_DEV_DIR=$dev" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Download and install OCCT ${{ env.OCCT_VERSION }}
+        shell: pwsh
+        run: |
+          $occtBase = "C:\OCCT"
+          New-Item -ItemType Directory -Force -Path $occtBase | Out-Null
+
+          # Try the installer EXE first, then fall back to a 7z archive if GitHub
+          # hosts one for this release.
+          $exeUrl = "https://github.com/Open-Cascade-SAS/OCCT/releases/download/V8_0_0/opencascade-${env:OCCT_VERSION}-vc14-64.exe"
+          $7zUrl  = "https://github.com/Open-Cascade-SAS/OCCT/releases/download/V8_0_0/opencascade-${env:OCCT_VERSION}-vc14-64.7z"
+          $installer = "$env:TEMP\opencascade-${env:OCCT_VERSION}-vc14-64.exe"
+          $archive   = "$env:TEMP\opencascade-${env:OCCT_VERSION}-vc14-64.7z"
+
+          $installed = $false
+          try {
+            curl.exe -L -o $installer $exeUrl --max-time 300
+            if (Test-Path $installer) {
+              Start-Process -FilePath $installer -ArgumentList "/S","/D=$occtBase" -Wait
+              $installed = $true
+            }
+          } catch {
+            Write-Warning "OCCT installer download failed: $_"
+          }
+
+          if (-not $installed) {
+            try {
+              curl.exe -L -o $archive $7zUrl --max-time 300
+              if (Test-Path $archive) {
+                # 7z is preinstalled on windows-latest runners
+                & 7z.exe x $archive -oC:\ -y
+                $installed = $true
+              }
+            } catch {
+              Write-Warning "OCCT 7z download failed: $_"
+            }
+          }
+
+          if (-not $installed) {
+            throw "Could not download or install OCCT ${env:OCCT_VERSION}."
+          }
+
+          $occtRoot = "$occtBase\opencascade-${env:OCCT_VERSION}-vc14-64"
+          if (-not (Test-Path "$occtRoot\inc\BRepPrimAPI_MakeBox.hxx")) {
+            throw "OCCT headers not found at $occtRoot"
+          }
+          "OCCT_ROOT=$occtRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "OCCT_ROOT=$occtRoot"
+
+      - name: Build Hippo3D native module
+        shell: pwsh
+        run: |
+          $env:OCCT_ROOT = $env:OCCT_ROOT
+          cd native
+          .\build_windows.ps1 -PythonExecutable (Get-Command python).Source -PlatformFolder "$env:PLATFORM"
+
+      - name: Package add-on
+        shell: pwsh
+        run: |
+          .\package_addon.ps1 -Platform "$env:PLATFORM" -ZipName "Hippo3D-v${env:TARGET_VERSION}-${env:FLAVOR}-${env:PLATFORM}"
+
+      - name: Verify ZIP exists
+        shell: pwsh
+        run: |
+          $zip = "dist\Hippo3D-v${env:TARGET_VERSION}-${env:FLAVOR}-${env:PLATFORM}.zip"
+          if (-not (Test-Path $zip)) { throw "ZIP not found: $zip" }
+          Get-Item $zip
+
+      - name: Upload ZIP as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PLATFORM }}-addon
+          path: dist\Hippo3D-v${{ env.TARGET_VERSION }}-${{ env.FLAVOR }}-${{ env.PLATFORM }}.zip
+
+      - name: Upload to GitHub release
+        if: github.event.inputs.upload_to_release == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "wip-${env:TARGET_VERSION}" "dist\Hippo3D-v${env:TARGET_VERSION}-${env:FLAVOR}-${env:PLATFORM}.zip" --clobber
