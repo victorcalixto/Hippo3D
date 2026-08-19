@@ -149,9 +149,11 @@ endif()
 # to use the Linux code path (which in turn enables the bundled android_uuid
 # header and defines wchar_t/endianness) when building on BSD.
 if(CMAKE_SYSTEM_NAME MATCHES "^(FreeBSD|OpenBSD|NetBSD)$")
-    if(TARGET opennurbsStatic)
-        target_compile_definitions(opennurbsStatic PRIVATE ON_RUNTIME_LINUX)
-    endif()
+    foreach(_on_target IN ITEMS opennurbsStatic OpenNURBS)
+        if(TARGET ${_on_target})
+            target_compile_definitions(${_on_target} PRIVATE ON_RUNTIME_LINUX)
+        endif()
+    endforeach()
 endif()
 
 # The opennurbs subproject is added as a subdirectory, so its static library
