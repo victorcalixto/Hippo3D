@@ -109,6 +109,16 @@ elseif(UNIX AND NOT APPLE)
     set(LINUX ON CACHE BOOL "" FORCE)
 endif()
 
+# On BSD, opennurbs_system.h includes <malloc.h>. BSDs provide malloc in
+# <stdlib.h>; <malloc.h> does not exist. Define a compile flag that lets us
+# swap to <stdlib.h> via a small local patch applied below.
+if(CMAKE_SYSTEM_NAME MATCHES "^(FreeBSD|OpenBSD|NetBSD)$")
+    add_compile_definitions(ON_RUNTIME_LINUX HIPPO_BSD_MALLOC)
+    # Also force the opennurbs subdirectory to see ON_RUNTIME_LINUX before its
+    # own files are compiled.
+    add_compile_definitions(ON_RUNTIME_LINUX)
+endif()
+
 add_subdirectory(${OPENNURBS_DIR} ${CMAKE_BINARY_DIR}/opennurbs)
 
 # The upstream opennurbs static library is not built with -fPIC by default, but

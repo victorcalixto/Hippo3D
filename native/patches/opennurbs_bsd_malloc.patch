@@ -1,0 +1,14 @@
+--- a/opennurbs_system.h
++++ b/opennurbs_system.h
+@@ -385,7 +385,11 @@
+ 
+ #pragma ON_PRAGMA_WARNING_BEFORE_DIRTY_INCLUDE
+ #if defined(ON_COMPILER_CLANG) && defined(ON_RUNTIME_APPLE)
+ #include <malloc/malloc.h>
++#elif defined(HIPPO_BSD_MALLOC)
++// FreeBSD/OpenBSD/NetBSD provide malloc declarations in <stdlib.h>; the
++// non-standard <malloc.h> header is not available.
++#include <stdlib.h>
+ #else
+ #include <malloc.h>
+ #endif

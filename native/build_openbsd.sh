@@ -57,6 +57,14 @@ if [ -f "$ON_ANDROID_CMAKE" ] && grep -q 'VERSION 3.4' "$ON_ANDROID_CMAKE"; then
     patch -d "$SCRIPT_DIR/third_party/opennurbs" -p1 < "$SCRIPT_DIR/patches/opennurbs_android_uuid_cmake_3_20.patch"
 fi
 
+# OpenNURBS assumes Linux has <malloc.h>. BSDs do not ship this header; use
+# <stdlib.h> instead.
+ON_SYSTEM_H="$SCRIPT_DIR/third_party/opennurbs/opennurbs_system.h"
+if [ -f "$ON_SYSTEM_H" ] && ! grep -q 'HIPPO_BSD_MALLOC' "$ON_SYSTEM_H"; then
+    echo "Patching $ON_SYSTEM_H for BSD malloc header..."
+    patch -d "$SCRIPT_DIR/third_party/opennurbs" -p1 < "$SCRIPT_DIR/patches/opennurbs_bsd_malloc.patch"
+fi
+
 cmake -S . -B build -G Ninja \
     -DPython_EXECUTABLE="$PYTHON_BIN" \
     -DPYTHON_EXECUTABLE="$PYTHON_BIN" \
