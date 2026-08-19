@@ -143,6 +143,17 @@ if(WIN32 OR APPLE)
     set(OPENNURBS_ANDROID_UUID_A "")
 endif()
 
+# OpenNURBS' platform detection header recognizes Windows, Apple, Android and
+# "Linux/WASM" runtime families.  FreeBSD/OpenBSD/NetBSD are otherwise treated
+# as unknown, causing endianness, wchar_t and uuid/uuid.h errors.  Tell OpenNURBS
+# to use the Linux code path (which in turn enables the bundled android_uuid
+# header and defines wchar_t/endianness) when building on BSD.
+if(CMAKE_SYSTEM_NAME MATCHES "^(FreeBSD|OpenBSD|NetBSD)$")
+    if(TARGET opennurbsStatic)
+        target_compile_definitions(opennurbsStatic PRIVATE ON_RUNTIME_LINUX)
+    endif()
+endif()
+
 # The opennurbs subproject is added as a subdirectory, so its static library
 # target is available directly.  Prefer linking the target over a hardcoded
 # path so single-config generators (Ninja/Makefiles) and multi-config
@@ -309,12 +320,13 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         "LINKER:-dead_strip_dylibs"
         "LINKER:-undefined,dynamic_lookup"
     )
-elseif(CMAKE_SYSTEM_NAME MATCHES "^(FreeBSD|OpenBSD)$")
+elseif(CMAKE_SYSTEM_NAME MATCHES "^(FreeBSD|OpenBSD|NetBSD)$")
     # BSDs use GNU-compatible ld
     target_link_options(hippo_occ_core PRIVATE
         "LINKER:-Bsymbolic-functions"
         "LINKER:--exclude-libs,ALL"
     )
+    target_compile_definitions(hippo_occ_core PRIVATE ON_RUNTIME_LINUX)
 elseif(WIN32 AND MSVC)
     # MSVC: suppress harmless iterator debug warnings, enable big obj
     target_compile_options(hippo_occ_core PRIVATE /bigobj)
