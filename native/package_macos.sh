@@ -102,13 +102,30 @@ for target in "$BUNDLE_DIR"/hippo_occ_core.so "$BUNDLE_DIR"/*.dylib; do
             install_name_tool -change "$oldref" "@loader_path/$name" "$target" 2>/dev/null || true
         done <<< "$refs"
     done
-    # Also replace common @rpath references that may have leaked in
+    # Replace @rpath references inside the module and bundled dylibs with
+    # @loader_path so the bundled libraries resolve without extra DYLD setup.
     refs="$(otool -L "$target" 2>/dev/null | grep -E '@rpath/libTK[A-Za-z0-9_]+\.dylib' | awk '{print $1}' || true)"
     while IFS= read -r oldref; do
         [ -n "$oldref" ] || continue
         name="$(basename "$oldref")"
-        install_name_tool -change "$oldref" "@loader_path/$name" "$target" 2>/dev/null || true
+        if [ -f "$BUNDLE_DIR/$name" ]; then
+            install_name_tool -change "$oldref" "@loader_path/$name" "$target" 2>/dev/null || true
+        fi
     done <<< "$refs"
+    # Also rewrite @rpath/libTK*.8.0.dylib references that may use a versioned
+    # name different from the bundled real file (e.g. libTKernel.8.0.dylib).
+    for lib in "$BUNDLE_DIR"/*.dylib; do
+        [ -f "$lib" ] || continue
+        soname="$(basename "$lib" | sed -E 's/\.8\.0\.0\.dylib$/.8.0.dylib/')"
+        if [ -n "$soname" ]; then
+            refs="$(otool -L "$target" 2>/dev/null | grep -E "@rpath/$soname " | awk '{print $1}' || true)"
+            while IFS= read -r oldref; do
+                [ -n "$oldref" ] || continue
+                realname="$(basename "$lib")"
+                install_name_tool -change "$oldref" "@loader_path/$realname" "$target" 2>/dev/null || true
+            done <<< "$refs"
+        fi
+    done
 done
 
 rm -f "$ZIP_PATH"
