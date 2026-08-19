@@ -54,7 +54,14 @@ jobs:
           PY_MINOR="${PYTHON_VERSION#*.}"
           PY_TAG="${PY_MAJOR}${PY_MINOR}"
           # pybind11 is installed via pip inside the build script if needed.
-          sudo pkg install -y git cmake ninja "python${PY_TAG}" "py${PY_TAG}-pip" opencascade zip
+          sudo pkg install -y git cmake ninja "python${PY_TAG}" opencascade zip
+
+          # FreeBSD's python package may not include pip. Bootstrap it with
+          # ensurepip (or get-pip.py as a fallback) so pybind11 can install.
+          "python${PYTHON_VERSION}" -m ensurepip --upgrade || {
+            fetch -o /tmp/get-pip.py "https://bootstrap.pypa.io/get-pip.py"
+            "python${PYTHON_VERSION}" /tmp/get-pip.py --break-system-packages
+          }
 
           cd "$GITHUB_WORKSPACE/native/third_party/opennurbs"
           git fetch origin
