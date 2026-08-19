@@ -1,0 +1,80 @@
+name: Build FreeBSD addon
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_to_release:
+        description: 'Upload ZIP to the wip-0.3.0 GitHub release'
+        required: false
+        default: 'true'
+        type: boolean
+
+permissions:
+  contents: write
+
+env:
+  TARGET_VERSION: '0.3.0'
+  FLAVOR: 'wip'
+  PLATFORM: 'freebsd-x64'
+
+jobs:
+  build-freebsd:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Start FreeBSD VM
+        uses: cross-platform-actions/action@v1.4.0
+        with:
+          operating_system: freebsd
+          version: '15.1'
+          architecture: x86-64
+          shell: bash
+          memory: 6G
+          cpu_count: 4
+
+      - name: Install dependencies and build in FreeBSD VM
+        shell: cpa.sh {0}
+        env:
+          TARGET_VERSION: ${{ env.TARGET_VERSION }}
+          FLAVOR: ${{ env.FLAVOR }}
+          PLATFORM: ${{ env.PLATFORM }}
+        run: |
+          set -euo pipefail
+          # FreeBSD package manager sometimes warns about OS version mismatch in CI images
+          export IGNORE_OSVERSION=yes
+          pkg install -y git cmake ninja python311 py311-pybind11 opencascade zip
+
+          # The opennurbs submodule points to a non-existent upstream commit.
+          cd native/third_party/opennurbs
+          git fetch origin
+          git checkout 2fc39db962678b44ee710f887a04fc38f8d4b883
+
+          # Build native module
+          cd "$GITHUB_WORKSPACE/native"
+          PYTHON_BIN=/usr/local/bin/python3.11 BUNDLE_AUTO=1 ./build_freebsd.sh
+
+          # Package add-on
+          cd "$GITHUB_WORKSPACE/native"
+          VERSION="$TARGET_VERSION" FLAVOR="$FLAVOR" PLATFORM="$PLATFORM" ./package_bsd.sh
+
+      - name: Verify ZIP exists
+        run: |
+          ls -lh "$GITHUB_WORKSPACE/dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${PLATFORM}.zip"
+
+      - name: Upload ZIP as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PLATFORM }}-addon
+          path: dist/Hippo3D-v${{ env.TARGET_VERSION }}-${{ env.FLAVOR }}-${{ env.PLATFORM }}.zip
+
+      - name: Upload to GitHub release
+        if: github.event.inputs.upload_to_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "wip-${TARGET_VERSION}" \
+            "dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${PLATFORM}.zip" --clobber
