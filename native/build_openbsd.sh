@@ -43,10 +43,10 @@ fi
 # OpenBSD does not, so treat BSDs the same as Apple/Android/WASM for ON::CloseAllFiles().
 ON_DEFINES="$SCRIPT_DIR/third_party/opennurbs/opennurbs_defines.cpp"
 if [ -f "$ON_DEFINES" ]; then
-    sed -i.bak \
+    echo "Patching $ON_DEFINES for BSD fcloseall()..."
+    sed -i '' \
         -e 's/#elif defined(ON_RUNTIME_APPLE) || defined(ON_RUNTIME_ANDROID) || defined(ON_RUNTIME_WASM)/#elif defined(ON_RUNTIME_APPLE) || defined(ON_RUNTIME_ANDROID) || defined(ON_RUNTIME_WASM) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)/' \
         "$ON_DEFINES"
-    rm -f "$ON_DEFINES.bak"
 fi
 
 cmake -S . -B build -G Ninja \
