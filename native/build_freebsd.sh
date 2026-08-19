@@ -51,6 +51,14 @@ if [ -f "$ON_DEFINES" ]; then
     rm -f "$ON_DEFINES.bak"
 fi
 
+# OpenNURBS submodule still declares CMake 3.4 in android_uuid/CMakeLists.txt, which
+# is rejected by CMake 4.x. Apply a local patch (does not require pushing to upstream).
+ON_ANDROID_CMAKE="$SCRIPT_DIR/third_party/opennurbs/android_uuid/CMakeLists.txt"
+if [ -f "$ON_ANDROID_CMAKE" ] && grep -q 'VERSION 3.4' "$ON_ANDROID_CMAKE"; then
+    echo "Patching $ON_ANDROID_CMAKE for CMake 4.x compatibility..."
+    patch -d "$SCRIPT_DIR/third_party/opennurbs" -p1 < "$SCRIPT_DIR/patches/opennurbs_android_uuid_cmake_3_20.patch"
+fi
+
 cmake -S . -B build -G Ninja \
     -DPython_EXECUTABLE="$PYTHON_BIN" \
     -DPYTHON_EXECUTABLE="$PYTHON_BIN" \
