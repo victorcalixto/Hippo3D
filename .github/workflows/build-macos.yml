@@ -13,7 +13,6 @@ permissions:
   contents: write
 
 env:
-  PYTHON_VERSION: '3.13.13'
   OCCT_VERSION: '8.0.0'
   TARGET_VERSION: '0.3.0'
   FLAVOR: 'wip'
@@ -22,15 +21,18 @@ env:
 jobs:
   build-macos:
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        include:
+        arch: [arm64, x86_64]
+        platform: [macos-arm64, macos-x86_64]
+        python_version: ['3.11.9', '3.13.13']
+        exclude:
           - arch: arm64
-            platform: macos-arm64
-          - arch: x86_64
             platform: macos-x86_64
+          - arch: x86_64
+            platform: macos-arm64
 
     steps:
       - name: Checkout repository
@@ -46,7 +48,7 @@ jobs:
           git fetch origin
           git checkout 2fc39db962678b44ee710f887a04fc38f8d4b883
 
-      - name: Install Python ${{ env.PYTHON_VERSION }}
+      - name: Install Python ${{ matrix.python_version }}
         run: |
           PY_SHORT="${PYTHON_VERSION%.*}"
           INSTALLER="python-${PYTHON_VERSION}-macos11.pkg"
@@ -55,6 +57,8 @@ jobs:
           # The python.org installer puts binaries under /Library/Frameworks/Python.framework/Versions/${PY_SHORT}
           echo "/Library/Frameworks/Python.framework/Versions/${PY_SHORT}/bin" >> "$GITHUB_PATH"
           echo "PYTHON_BIN=/Library/Frameworks/Python.framework/Versions/${PY_SHORT}/bin/python${PY_SHORT}" >> "$GITHUB_ENV"
+        env:
+          PYTHON_VERSION: ${{ matrix.python_version }}
 
       - name: Install pybind11 and CMake
         run: |
@@ -74,30 +78,47 @@ jobs:
         env:
           OSX_ARCH: ${{ matrix.arch }}
           PLATFORM_FOLDER: ${{ matrix.platform }}
+          PYTHON_VERSION: ${{ matrix.python_version }}
         run: |
           chmod +x native/build_macos.sh
           cd native
-          OSX_ARCH="${OSX_ARCH}" PLATFORM_FOLDER="${PLATFORM_FOLDER}" DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET}" ./build_macos.sh
+          OSX_ARCH="${OSX_ARCH}" PLATFORM_FOLDER="${PLATFORM_FOLDER}" DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET}" PYTHON_BIN="${PYTHON_BIN}" ./build_macos.sh
 
       - name: Package add-on for ${{ matrix.arch }}
         env:
           OSX_ARCH: ${{ matrix.arch }}
           VERSION: ${{ env.TARGET_VERSION }}
           FLAVOR: ${{ env.FLAVOR }}
+          PYTHON_VERSION: ${{ matrix.python_version }}
         run: |
+          PY_SHORT="${PYTHON_VERSION%.*}"
+          PY_TAG="${PY_SHORT//./}"
+          ZIP_BASE="Hippo3D-v${VERSION}-${FLAVOR}-${{ matrix.platform }}-python${PY_TAG}"
           chmod +x native/package_macos.sh
           cd native
-          OSX_ARCH="${OSX_ARCH}" VERSION="${VERSION}" FLAVOR="${FLAVOR}" ./package_macos.sh
+          OSX_ARCH="${OSX_ARCH}" VERSION="${VERSION}" FLAVOR="${FLAVOR}" ZIP_BASE="${ZIP_BASE}" ./package_macos.sh
+
+      - name: Verify ZIP exists
+        run: |
+          PY_SHORT="${PYTHON_VERSION%.*}"
+          PY_TAG="${PY_SHORT//./}"
+          ZIP="dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${{ matrix.platform }}-python${PY_TAG}.zip"
+          ls -lh "$ZIP"
+        env:
+          PYTHON_VERSION: ${{ matrix.python_version }}
 
       - name: Upload ZIP as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.platform }}-addon
-          path: dist/Hippo3D-v${{ env.TARGET_VERSION }}-${{ env.FLAVOR }}-${{ matrix.platform }}.zip
+          name: ${{ matrix.platform }}-python${{ matrix.python_version }}-addon
+          path: dist/Hippo3D-v${{ env.TARGET_VERSION }}-${{ env.FLAVOR }}-${{ matrix.platform }}-python*.zip
 
       - name: Upload to GitHub release
         if: github.event.inputs.upload_to_release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PYTHON_VERSION: ${{ matrix.python_version }}
         run: |
-          gh release upload "wip-${TARGET_VERSION}" "dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${{ matrix.platform }}.zip" --clobber
+          PY_SHORT="${PYTHON_VERSION%.*}"
+          PY_TAG="${PY_SHORT//./}"
+          gh release upload "wip-${TARGET_VERSION}" "dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${{ matrix.platform }}-python${PY_TAG}.zip" --clobber

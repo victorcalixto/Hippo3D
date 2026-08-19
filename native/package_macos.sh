@@ -15,7 +15,12 @@ else
 fi
 
 OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_ROOT/dist}"
-ZIP_NAME="Hippo3D-v${VERSION}-${FLAVOR}-${PLATFORM}.zip"
+
+if [ -n "${ZIP_BASE:-}" ]; then
+    ZIP_NAME="${ZIP_BASE}.zip"
+else
+    ZIP_NAME="Hippo3D-v${VERSION}-${FLAVOR}-${PLATFORM}.zip"
+fi
 ZIP_PATH="$OUTPUT_DIR/$ZIP_NAME"
 
 NATIVE_DIR="$SCRIPT_DIR/$PLATFORM"
@@ -82,22 +87,28 @@ for lib in "$BUNDLE_DIR"/*.dylib; do
     install_name_tool -id "@rpath/$name" "$lib" 2>/dev/null || true
 done
 
-# Rewrite library references inside the module and between bundled dylibs
+# Rewrite library references inside the module and between bundled dylibs.
+# Pipelines are wrapped in functions so a grep/awk non-zero exit does not
+# trigger pipefail.
 for target in "$BUNDLE_DIR"/hippo_occ_core.so "$BUNDLE_DIR"/*.dylib; do
     [ -f "$target" ] || continue
     for lib in "$BUNDLE_DIR"/*.dylib; do
         [ -f "$lib" ] || continue
         name="$(basename "$lib")"
         # Replace absolute references to this library name with @loader_path/<name>
-        otool -L "$target" 2>/dev/null | grep -E "/$name " | awk '{print $1}' | while read -r oldref; do
+        refs="$(otool -L "$target" 2>/dev/null | grep -E "/$name " | awk '{print $1}' || true)"
+        while IFS= read -r oldref; do
+            [ -n "$oldref" ] || continue
             install_name_tool -change "$oldref" "@loader_path/$name" "$target" 2>/dev/null || true
-        done
+        done <<< "$refs"
     done
-    # Also replace common Homebrew and system prefixes that may have leaked in
-    otool -L "$target" 2>/dev/null | grep -E '@rpath/libTK[A-Za-z0-9_]+\.dylib' | awk '{print $1}' | while read -r oldref; do
+    # Also replace common @rpath references that may have leaked in
+    refs="$(otool -L "$target" 2>/dev/null | grep -E '@rpath/libTK[A-Za-z0-9_]+\.dylib' | awk '{print $1}' || true)"
+    while IFS= read -r oldref; do
+        [ -n "$oldref" ] || continue
         name="$(basename "$oldref")"
         install_name_tool -change "$oldref" "@loader_path/$name" "$target" 2>/dev/null || true
-    done
+    done <<< "$refs"
 done
 
 rm -f "$ZIP_PATH"
