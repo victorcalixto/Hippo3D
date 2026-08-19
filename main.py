@@ -7954,8 +7954,10 @@ def _hippo_iso_preview_draw(*args, **kwargs):
 
     data = _hippo_iso_preview_data
     if not data.get("active"):
+        print("[Hippo3D IsoInteractive] draw callback skipped: not active")
         return
 
+    print(f"[Hippo3D IsoInteractive] draw callback: proj_pt={data.get('proj_pt')}, preview_pts={len(data.get('preview_pts', []))}")
     shader = gpu.shader.from_builtin("UNIFORM_COLOR")
 
     # Draw projected point
@@ -8053,8 +8055,10 @@ def _hippo_iso_set_preview(context, obj, mouse_xy, direction):
         return
 
     if not proj.get("found"):
+        print(f"[Hippo3D IsoInteractive] UV projection not found for local_pt={local_pt}")
         return
 
+    print(f"[Hippo3D IsoInteractive] UV projection found: u={proj.get('u')}, v={proj.get('v')}")
     u = float(proj["u"])
     v = float(proj["v"])
     data["u"] = u
@@ -8081,6 +8085,7 @@ def _hippo_iso_set_preview(context, obj, mouse_xy, direction):
             cid = occ.extract_isocurve_v(sid, v)
         curve_data = occ.remesh_curve(cid, 0.05)
         edges = curve_data.get("edges", [])
+        print(f"[Hippo3D IsoInteractive] remesh_curve edges count={len(edges)}")
         if edges:
             pts = []
             for p in edges[0]:
@@ -8088,9 +8093,13 @@ def _hippo_iso_set_preview(context, obj, mouse_xy, direction):
                 wp = obj.matrix_world @ Vector((p[0], p[1], p[2]))
                 pts.append((wp.x, wp.y, wp.z))
             data["preview_pts"] = pts
+            print(f"[Hippo3D IsoInteractive] preview_pts built: {len(pts)} points")
         else:
             data["preview_pts"] = []
-    except Exception:
+    except Exception as exc:
+        print(f"[Hippo3D IsoInteractive] preview curve build failed: {exc}")
+        import traceback
+        traceback.print_exc()
         data["preview_pts"] = []
 
     # Force redraw
@@ -8121,7 +8130,12 @@ class HIPPO_OT_ExtractIsoInteractive(Operator):
             return {"RUNNING_MODAL"}
 
         if event.type == "MOUSEMOVE":
-            _hippo_iso_set_preview(context, data["obj"], (event.mouse_x, event.mouse_y), data.get("direction", "U"))
+            try:
+                _hippo_iso_set_preview(context, data["obj"], (event.mouse_x, event.mouse_y), data.get("direction", "U"))
+            except Exception as exc:
+                print(f"[Hippo3D IsoInteractive] MOUSEMOVE preview error: {exc}")
+                import traceback
+                traceback.print_exc()
             return {"RUNNING_MODAL"}
 
         if event.type == "LEFTMOUSE" and event.value == "PRESS":
@@ -8150,16 +8164,20 @@ class HIPPO_OT_ExtractIsoInteractive(Operator):
             occ = hippo_load_occ_core()
         except Exception as exc:
             self.report({"WARNING"}, f"OCC core not available: {exc}")
+            print(f"[Hippo3D IsoInteractive] OCC core load failed: {exc}")
             return {"CANCELLED"}
 
         if not occ.has_shape(sid):
             self.report({"WARNING"}, "Shape ID not found in OCC registry.")
+            print(f"[Hippo3D IsoInteractive] shape {sid} not in registry")
             return {"CANCELLED"}
 
         # Ensure the shape has a surface face
         bounds = occ.get_surface_bounds(sid)
+        print(f"[Hippo3D IsoInteractive] surface bounds for {sid}: {bounds}")
         if not bounds.get("found"):
             self.report({"WARNING"}, "Selected object has no surface face.")
+            print(f"[Hippo3D IsoInteractive] no surface face")
             return {"CANCELLED"}
 
         _hippo_iso_preview_data = {
@@ -8178,6 +8196,7 @@ class HIPPO_OT_ExtractIsoInteractive(Operator):
         _hippo_iso_draw_handler = bpy.types.SpaceView3D.draw_handler_add(
             _hippo_iso_preview_draw, args, "WINDOW", "POST_VIEW"
         )
+        print(f"[Hippo3D IsoInteractive] draw handler added: {_hippo_iso_draw_handler}")
 
         context.window_manager.modal_handler_add(self)
         context.workspace.status_text_set("Click on surface to place isocurve | TAB to toggle U/V | ESC to finish")
