@@ -123,19 +123,28 @@ if(WIN32)
     set(OPENNURBS_ANDROID_UUID_A "")
 endif()
 
-find_library(OPENNURBS_STATIC_LIB
-    NAMES opennurbsStatic
-    PATHS
-        ${OPENNURBS_DIR}/build
-        ${OPENNURBS_DIR}/build/Release
-        ${CMAKE_BINARY_DIR}/opennurbs
-        ${CMAKE_BINARY_DIR}/opennurbs/Release
-        ${CMAKE_BINARY_DIR}/opennurbs/Debug
-    NO_DEFAULT_PATH
-)
-if(NOT OPENNURBS_STATIC_LIB)
-    message(STATUS "OpenNURBS static library not yet built; configuring build step")
-    set(OPENNURBS_STATIC_LIB "${CMAKE_BINARY_DIR}/opennurbs/Release/${CMAKE_STATIC_LIBRARY_PREFIX}opennurbsStatic${CMAKE_STATIC_LIBRARY_SUFFIX}")
+# The opennurbs subproject is added as a subdirectory, so its static library
+# target is available directly.  Prefer linking the target over a hardcoded
+# path so single-config generators (Ninja/Makefiles) and multi-config
+# generators (MSVC) both work without guessing the output directory.
+if(TARGET opennurbsStatic)
+    set(OPENNURBS_STATIC_LIB opennurbsStatic)
+    message(STATUS "Linking OpenNURBS via CMake target: opennurbsStatic")
+else()
+    find_library(OPENNURBS_STATIC_LIB
+        NAMES opennurbsStatic
+        PATHS
+            ${OPENNURBS_DIR}/build
+            ${OPENNURBS_DIR}/build/Release
+            ${CMAKE_BINARY_DIR}/opennurbs
+            ${CMAKE_BINARY_DIR}/opennurbs/Release
+            ${CMAKE_BINARY_DIR}/opennurbs/Debug
+        NO_DEFAULT_PATH
+    )
+    if(NOT OPENNURBS_STATIC_LIB)
+        message(STATUS "OpenNURBS static library not yet built; configuring build step")
+        set(OPENNURBS_STATIC_LIB "${CMAKE_BINARY_DIR}/opennurbs/Release/${CMAKE_STATIC_LIBRARY_PREFIX}opennurbsStatic${CMAKE_STATIC_LIBRARY_SUFFIX}")
+    endif()
 endif()
 
 set(OPENNURBS_ZLIB_A "${OPENNURBS_DIR}/build/zlib/${CMAKE_STATIC_LIBRARY_PREFIX}zlib${CMAKE_STATIC_LIBRARY_SUFFIX}")
