@@ -143,14 +143,16 @@ jobs:
       - name: Package add-on
         shell: pwsh
         run: |
-          $pyShort = "${{ matrix.python_version }}".Replace(".", "")
+          $parts = "${{ matrix.python_version }}".Split(".")
+          $pyShort = $parts[0] + $parts[1]
           $zipName = "Hippo3D-v${env:TARGET_VERSION}-${env:FLAVOR}-${env:PLATFORM}-python${pyShort}"
           .\package_addon.ps1 -Platform "$env:PLATFORM" -ZipName "$zipName"
 
       - name: Verify ZIP exists
         shell: pwsh
         run: |
-          $pyShort = "${{ matrix.python_version }}".Replace(".", "")
+          $parts = "${{ matrix.python_version }}".Split(".")
+          $pyShort = $parts[0] + $parts[1]
           $zip = "dist\Hippo3D-v${env:TARGET_VERSION}-${env:FLAVOR}-${env:PLATFORM}-python${pyShort}.zip"
           if (-not (Test-Path $zip)) { throw "ZIP not found: $zip" }
           Get-Item $zip
@@ -159,7 +161,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.PLATFORM }}-python${{ matrix.python_version }}-addon
-          path: dist\Hippo3D-v${{ env.TARGET_VERSION }}-${{ env.FLAVOR }}-${{ env.PLATFORM }}-python${{ matrix.python_version }}.zip
+          path: dist\Hippo3D-v${{ env.TARGET_VERSION }}-${{ env.FLAVOR }}-${{ env.PLATFORM }}-python*.zip
 
       - name: Upload to GitHub release
         if: github.event.inputs.upload_to_release == 'true'
@@ -167,5 +169,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $pyShort = "${{ matrix.python_version }}".Replace(".", "")
+          $parts = "${{ matrix.python_version }}".Split(".")
+          $pyShort = $parts[0] + $parts[1]
           gh release upload "wip-${env:TARGET_VERSION}" "dist\Hippo3D-v${env:TARGET_VERSION}-${env:FLAVOR}-${env:PLATFORM}-python${pyShort}.zip" --clobber
