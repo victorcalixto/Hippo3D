@@ -6,10 +6,27 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OCCT_VERSION="8.0.0"
-OCCT_SRC_DIR="${SCRIPT_DIR}/third_party/occt-8.0.0-src"
-OCCT_INSTALL_DIR="${SCRIPT_DIR}/third_party/occt-8.0.0"
-OCCT_BUILD_DIR="${OCCT_SRC_DIR}/build"
-OCCT_TARBALL="/tmp/opencascade-${OCCT_VERSION}.tar.gz"
+
+# Architecture and platform settings.
+# Defaults to native architecture on Linux; on macOS set OSX_ARCH to build for
+# a specific slice (arm64 or x86_64).  Deployment target must be at least the
+# minimum macOS version supported by the target Blender version.
+OSX_ARCH="${OSX_ARCH:-}"
+DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET:-}"
+if [ "$(uname)" = "Darwin" ]; then
+    if [ -z "$OSX_ARCH" ]; then
+        OSX_ARCH="$(uname -m)"
+    fi
+    if [ -z "$DEPLOYMENT_TARGET" ]; then
+        # Blender 5.x requires macOS 13 (Ventura) or later.
+        DEPLOYMENT_TARGET="13.0"
+    fi
+fi
+
+OCCT_SRC_DIR="${SCRIPT_DIR}/third_party/occt-${OCCT_VERSION}-src"
+OCCT_INSTALL_DIR="${SCRIPT_DIR}/third_party/occt-${OCCT_VERSION}${OSX_ARCH:+-${OSX_ARCH}}"
+OCCT_BUILD_DIR="${OCCT_SRC_DIR}/build${OSX_ARCH:+-${OSX_ARCH}}"
+OCCT_TARBALL="/tmp/opencascade-${OCCT_VERSION}${OSX_ARCH:+-${OSX_ARCH}}.tar.gz"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -61,28 +78,42 @@ info "Configuring OCCT ${OCCT_VERSION} (minimal build)..."
 mkdir -p "${OCCT_BUILD_DIR}"
 cd "${OCCT_BUILD_DIR}"
 
-cmake -S "${OCCT_SRC_DIR}" -B "${OCCT_BUILD_DIR}" -G Ninja \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX="${OCCT_INSTALL_DIR}" \
-    -DBUILD_LIBRARY_TYPE=Shared \
-    -DBUILD_MODULE_Draw=OFF \
-    -DBUILD_MODULE_Visualization=OFF \
-    -DBUILD_MODULE_DataExchange=ON \
-    -DBUILD_MODULE_FoundationClasses=ON \
-    -DBUILD_MODULE_ModelingData=ON \
-    -DBUILD_MODULE_ModelingAlgorithms=ON \
-    -DBUILD_MODULE_ShapeHealing=ON \
-    -DBUILD_MODULE_Mesh=ON \
-    -DBUILD_ADDITIONAL_TOOLKITS="" \
-    -DBUILD_DOC_Overview=OFF \
-    -DBUILD_DOC_RefMan=OFF \
-    -DUSE_TKCAF=OFF \
-    -DUSE_TKOpenGl=OFF \
-    -DUSE_VTK=OFF \
-    -DBUILD_ENABLE_FPE_SIGNAL_HANDLER=OFF \
-    -DBUILD_USE_PCH=OFF \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+CMAKE_FLAGS=(
+    -S "${OCCT_SRC_DIR}"
+    -B "${OCCT_BUILD_DIR}"
+    -G Ninja
+    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_INSTALL_PREFIX="${OCCT_INSTALL_DIR}"
+    -DBUILD_LIBRARY_TYPE=Shared
+    -DBUILD_MODULE_Draw=OFF
+    -DBUILD_MODULE_Visualization=OFF
+    -DBUILD_MODULE_DataExchange=ON
+    -DBUILD_MODULE_FoundationClasses=ON
+    -DBUILD_MODULE_ModelingData=ON
+    -DBUILD_MODULE_ModelingAlgorithms=ON
+    -DBUILD_MODULE_ShapeHealing=ON
+    -DBUILD_MODULE_Mesh=ON
+    -DBUILD_ADDITIONAL_TOOLKITS=""
+    -DBUILD_DOC_Overview=OFF
+    -DBUILD_DOC_RefMan=OFF
+    -DUSE_TKCAF=OFF
+    -DUSE_TKOpenGl=OFF
+    -DUSE_VTK=OFF
+    -DBUILD_ENABLE_FPE_SIGNAL_HANDLER=OFF
+    -DBUILD_USE_PCH=OFF
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
     -DCMAKE_CXX_STANDARD=17
+)
+
+if [ "$(uname)" = "Darwin" ]; then
+    CMAKE_FLAGS+=(
+        -DCMAKE_OSX_ARCHITECTURES="${OSX_ARCH}"
+        -DCMAKE_OSX_DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET}"
+    )
+    info "macOS build: arch=${OSX_ARCH} deployment=${DEPLOYMENT_TARGET}"
+fi
+
+cmake "${CMAKE_FLAGS[@]}"
 
 # ---------------------------------------------------------------------------
 # Build & install
@@ -102,11 +133,11 @@ if [ -f "${OCCT_INSTALL_DIR}/include/opencascade/Standard_Version.hxx" ]; then
     info "SUCCESS: OCCT ${OCCT_VERSION} installed at ${OCCT_INSTALL_DIR}"
     echo ""
     echo "  Include: ${OCCT_INSTALL_DIR}/include/opencascade/"
-    echo "  Library: ${OCCT_INSTALL_DIR}/lib/"
-    echo ""
-    echo "To use in Hippo3D build:"
-    echo "  export OCCT_ROOT=${OCCT_INSTALL_DIR}"
-    echo "  ./build_linux.sh"
+echo "  Library: ${OCCT_INSTALL_DIR}/lib/"
+echo ""
+echo "To use in Hippo3D build:"
+echo "  export OCCT_ROOT=${OCCT_INSTALL_DIR}"
+echo "  OSX_ARCH=${OSX_ARCH} ./build_macos.sh"
 else
     error "Installation failed: Standard_Version.hxx not found"
 fi

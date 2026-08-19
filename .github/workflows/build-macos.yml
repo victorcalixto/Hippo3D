@@ -1,0 +1,102 @@
+name: Build macOS addon
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_to_release:
+        description: 'Upload ZIPs to the wip-0.3.0 GitHub release'
+        required: false
+        default: 'true'
+        type: boolean
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: '3.13.13'
+  OCCT_VERSION: '8.0.0'
+  TARGET_VERSION: '0.3.0'
+  FLAVOR: 'wip'
+  DEPLOYMENT_TARGET: '13.0'
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            platform: macos-arm64
+          - arch: x86_64
+            platform: macos-x86_64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The repo currently references an opennurbs commit that does not exist on
+      # the public remote. Reset to the last known buildable commit.
+      - name: Fix opennurbs submodule
+        run: |
+          cd native/third_party/opennurbs
+          git fetch origin
+          git checkout 2fc39db962678b44ee710f887a04fc38f8d4b883
+
+      - name: Install Python ${{ env.PYTHON_VERSION }}
+        run: |
+          PY_SHORT="${PYTHON_VERSION%.*}"
+          INSTALLER="python-${PYTHON_VERSION}-macos11.pkg"
+          curl -L -o "/tmp/${INSTALLER}" "https://www.python.org/ftp/python/${PYTHON_VERSION}/${INSTALLER}"
+          sudo installer -pkg "/tmp/${INSTALLER}" -target /
+          # The python.org installer puts binaries under /Library/Frameworks/Python.framework/Versions/${PY_SHORT}
+          echo "/Library/Frameworks/Python.framework/Versions/${PY_SHORT}/bin" >> "$GITHUB_PATH"
+          echo "PYTHON_BIN=/Library/Frameworks/Python.framework/Versions/${PY_SHORT}/bin/python${PY_SHORT}" >> "$GITHUB_ENV"
+
+      - name: Install pybind11 and CMake
+        run: |
+          "$PYTHON_BIN" -m ensurepip --upgrade
+          "$PYTHON_BIN" -m pip install --upgrade pip pybind11
+          brew install cmake ninja
+
+      - name: Build OCCT ${{ env.OCCT_VERSION }} for ${{ matrix.arch }}
+        env:
+          OSX_ARCH: ${{ matrix.arch }}
+        run: |
+          chmod +x native/build_occt.sh
+          ./native/build_occt.sh
+          echo "OCCT_ROOT=$(pwd)/native/third_party/occt-${OCCT_VERSION}-${OSX_ARCH}" >> "$GITHUB_ENV"
+
+      - name: Build Hippo3D native module for ${{ matrix.arch }}
+        env:
+          OSX_ARCH: ${{ matrix.arch }}
+          PLATFORM_FOLDER: ${{ matrix.platform }}
+        run: |
+          chmod +x native/build_macos.sh
+          cd native
+          OSX_ARCH="${OSX_ARCH}" PLATFORM_FOLDER="${PLATFORM_FOLDER}" DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET}" ./build_macos.sh
+
+      - name: Package add-on for ${{ matrix.arch }}
+        env:
+          OSX_ARCH: ${{ matrix.arch }}
+          VERSION: ${{ env.TARGET_VERSION }}
+          FLAVOR: ${{ env.FLAVOR }}
+        run: |
+          chmod +x native/package_macos.sh
+          cd native
+          OSX_ARCH="${OSX_ARCH}" VERSION="${VERSION}" FLAVOR="${FLAVOR}" ./package_macos.sh
+
+      - name: Upload ZIP as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}-addon
+          path: dist/Hippo3D-v${{ env.TARGET_VERSION }}-${{ env.FLAVOR }}-${{ matrix.platform }}.zip
+
+      - name: Upload to GitHub release
+        if: github.event.inputs.upload_to_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "wip-${TARGET_VERSION}" "dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${{ matrix.platform }}.zip" --clobber

@@ -167,8 +167,30 @@ cmake --build build
 ### Notes
 
 - Ensure **Xcode Command Line Tools** are installed: `xcode-select --install`
-- If using **Homebrew OCCT** on Apple Silicon, the script auto-detects `/opt/homebrew/opt/opencascade`.
-- On Intel Macs, it auto-detects `/usr/local/opt/opencascade`.
+- The script defaults to the **Homebrew** OCCT prefix for local development.
+- For a fully self-contained build matching the official release, build **OCCT 8.0.0 from source** first:
+
+  ```bash
+  cd native
+  ./build_occt.sh
+  # installs to native/third_party/occt-8.0.0-<arch>
+  ```
+
+- The build script now supports cross-compilation.  To build both architectures
+  on an Apple Silicon machine:
+
+  ```bash
+  cd native
+  ./build_occt.sh                          # arm64
+  ./build_macos.sh                         # arm64
+
+  OSX_ARCH=x86_64 ./build_occt.sh        # x86_64
+  OSX_ARCH=x86_64 PLATFORM_FOLDER=macos-x86_64 ./build_macos.sh
+  ```
+
+- The official GitHub Actions workflow builds both `macos-arm64` and
+  `macos-x86_64` packages using Python 3.13.13 and OCCT 8.0.0, targeting
+  macOS 13 (Ventura) and later.  See `.github/workflows/build-macos.yml`.
 
 ---
 

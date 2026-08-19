@@ -97,11 +97,12 @@ set(OPENNURBS_DIR "${CMAKE_SOURCE_DIR}/third_party/opennurbs")
 
 # On Windows the upstream opennurbs CMakeLists only builds android_uuid/freetype263
 # for (ANDROID OR LINUX), so on WIN32 we must force them on as well or the link
-# step will be missing those static archives.
+# step will be missing those static archives.  On macOS the LINUX branch is taken
+# by default and builds correctly because POSIX headers are available.
 if(WIN32)
     set(OPENNURBS_BUILD_ON_WINDOWS ON CACHE BOOL "Build android_uuid/freetype263 on Windows" FORCE)
 endif()
-if(OPENNURBS_BUILD_ON_WINDOWS)
+if(OPENNURBS_BUILD_ON_WINDOWS OR APPLE)
     set(_orig_ANDROID "${ANDROID}")
     set(_orig_LINUX "${LINUX}")
     set(ANDROID ON CACHE BOOL "" FORCE)
@@ -110,7 +111,7 @@ endif()
 
 add_subdirectory(${OPENNURBS_DIR} ${CMAKE_BINARY_DIR}/opennurbs)
 
-if(OPENNURBS_BUILD_ON_WINDOWS)
+if(OPENNURBS_BUILD_ON_WINDOWS OR APPLE)
     set(ANDROID "${_orig_ANDROID}" CACHE BOOL "" FORCE)
     set(LINUX "${_orig_LINUX}" CACHE BOOL "" FORCE)
 endif()
