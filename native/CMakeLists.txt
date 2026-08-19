@@ -119,7 +119,12 @@ endif()
 # On Windows we don't actually need android_uuid: opennurbs_uuid.cpp uses
 # Rpcrt4.lib / UuidCreate when ON_COMPILER_MSC is defined.  The android_uuid
 # subdir only builds cleanly on Unix, so skip linking it on Windows.
-if(WIN32)
+# On macOS, opennurbs' own CMakeLists links CoreGraphics/CoreText/Foundation and
+# zlib to opennurbsStatic; we do NOT need android_uuid because the Apple
+# frameworks provide UUID functionality through CFUUID.  Linking the android_uuid
+# target pulls in a CMake-installed '-landroid' flag that does not exist on
+# Darwin and breaks the link.
+if(WIN32 OR APPLE)
     set(OPENNURBS_ANDROID_UUID_A "")
 endif()
 
