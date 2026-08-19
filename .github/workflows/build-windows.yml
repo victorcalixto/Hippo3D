@@ -90,13 +90,16 @@ jobs:
           curl.exe -L -o $thirdPartyArchive $thirdPartyZip --max-time 600
           if (-not (Test-Path $thirdPartyArchive)) { throw "Failed to download OCCT 3rdparty binaries" }
 
-          # Extract the nested zips into known folders. The release zip contains a
-          # single inner zip that extracts to opencascade-X.X.X-vc14-64/.
+          # Both OCCT and 3rdparty archives are zip-of-a-zip. Extract outer
+          # archives into temp locations, then extract the inner archives.
           Expand-Archive -Path $occtArchive -DestinationPath "$env:TEMP\occt_extract" -Force
-          Expand-Archive -Path $thirdPartyArchive -DestinationPath "$thirdPartyBase" -Force
+          Expand-Archive -Path $thirdPartyArchive -DestinationPath "$env:TEMP\3rdparty_extract" -Force
 
           $innerOcct = (Get-ChildItem -Path "$env:TEMP\occt_extract" -Filter "*.zip" | Select-Object -First 1).FullName
           Expand-Archive -Path $innerOcct -DestinationPath $occtBase -Force
+
+          $innerThirdParty = (Get-ChildItem -Path "$env:TEMP\3rdparty_extract" -Filter "*.zip" | Select-Object -First 1).FullName
+          Expand-Archive -Path $innerThirdParty -DestinationPath $thirdPartyBase -Force
 
           # Locate the actual OCCT root by searching for the headers.
           $occtRoot = (Get-ChildItem -Path $occtBase -Recurse -Filter "BRepPrimAPI_MakeBox.hxx" | Select-Object -First 1).DirectoryName
@@ -114,6 +117,9 @@ jobs:
           if (-not (Test-Path $thirdPartyDir)) {
             # Fallback: search under the extraction base
             $thirdPartyDir = (Get-ChildItem -Path $thirdPartyBase -Directory | Select-Object -First 1).FullName
+          }
+          if (-not $thirdPartyDir) {
+            throw "Could not locate extracted 3rdparty-vc14-64 directory"
           }
 
           "OCCT_ROOT=$occtRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
