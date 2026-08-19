@@ -46,7 +46,7 @@ jobs:
           set -euo pipefail
           # FreeBSD package manager sometimes warns about OS version mismatch in CI images
           export IGNORE_OSVERSION=yes
-          pkg install -y git cmake ninja python311 py311-pybind11 opencascade zip
+          sudo pkg install -y git cmake ninja python311 py311-pybind11 opencascade zip
 
           # The opennurbs submodule points to a non-existent upstream commit.
           cd native/third_party/opennurbs
