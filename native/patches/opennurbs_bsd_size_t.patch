@@ -1,0 +1,11 @@
+--- a/opennurbs_material.cpp
++++ b/opennurbs_material.cpp
+@@ -3955,7 +3955,7 @@ bool ON_MaterialRef::Write( ON_BinaryArchive& binary_archive ) const
+ 
+     for (size_t i = 0; i < m_info.m_faceSourceIds.Count(); i++)
+     {
+-#if defined(ON_RUNTIME_WASM)
++#if defined(ON_RUNTIME_WASM) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+       if (!binary_archive.WriteInt(m_info.m_faceSourceIds[(int)i]))
+ #else
+       if (!binary_archive.WriteInt(m_info.m_faceSourceIds[i]))

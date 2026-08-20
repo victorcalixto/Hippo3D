@@ -192,23 +192,38 @@ jobs:
           $pyShort = $parts[0] + $parts[1]
           $zip = "dist\Hippo3D-v${env:TARGET_VERSION}-${env:FLAVOR}-${env:HIPPO_PLATFORM}-python${pyShort}.zip"
           $tmp = "$env:TEMP\hippo_test"
+          $extractRoot = "$tmp\Hippo3D"
           if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
-          Expand-Archive -Path $zip -DestinationPath $tmp -Force
-          $nativeDir = "$tmp\Hippo3D\native\$env:HIPPO_PLATFORM"
+          New-Item -ItemType Directory -Force -Path $extractRoot | Out-Null
+          Expand-Archive -Path $zip -DestinationPath $extractRoot -Force
+          # The packaged ZIP contents are at the top level, so after extracting
+          # into $extractRoot the native folder is $extractRoot\native.
+          $nativeDir = "$extractRoot\native\$env:HIPPO_PLATFORM"
+          if (-not (Test-Path $nativeDir)) {
+              Write-Host "Expected native dir not found. Listing extraction tree:"
+              Get-ChildItem -Recurse $extractRoot | ForEach-Object { Write-Host "  $($_.FullName)" }
+              throw "Native module directory not found: $nativeDir"
+          }
           $env:PATH = "$nativeDir;" + $env:PATH
           $mod = Get-ChildItem -Path $nativeDir -Filter "hippo_occ_core*.pyd" | Sort-Object Name | Select-Object -Last 1
-          if (-not $mod) { throw "No native module found in $nativeDir" }
+          if (-not $mod) {
+              Write-Host "No .pyd in $nativeDir. Listing contents:"
+              Get-ChildItem -Recurse $nativeDir | ForEach-Object { Write-Host "  $($_.Name)" }
+              throw "No native module found in $nativeDir"
+          }
           $modPath = $mod.FullName
           Write-Host "Testing import of" $modPath
           $testFile = "$env:TEMP\hippo_test_import.py"
-          $testCode = "import sys, importlib.util" + "`n" +
-              "sys.path.insert(0, r'$nativeDir')" + "`n" +
-              "spec = importlib.util.spec_from_file_location('hippo_occ_core', r'$modPath')" + "`n" +
-              "mod = importlib.util.module_from_spec(spec)" + "`n" +
-              "sys.modules['hippo_occ_core'] = mod" + "`n" +
-              "spec.loader.exec_module(mod)" + "`n" +
+          $testLines = @(
+              "import sys, importlib.util",
+              "sys.path.insert(0, r'$nativeDir')",
+              "spec = importlib.util.spec_from_file_location('hippo_occ_core', r'$modPath')",
+              "mod = importlib.util.module_from_spec(spec)",
+              "sys.modules['hippo_occ_core'] = mod",
+              "spec.loader.exec_module(mod)",
               "print('SUCCESS:', mod.make_box_mesh(1,1,1).keys())"
-          Set-Content -Path $testFile -Value $testCode
+          )
+          Set-Content -Path $testFile -Value ($testLines -join "`n")
           & "$env:BLENDER_PYTHON" $testFile
 
       - name: Upload ZIP as workflow artifact

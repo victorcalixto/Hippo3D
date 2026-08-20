@@ -67,6 +67,17 @@ if [ -f "$ON_SYSTEM_H" ] && ! grep -q 'HIPPO_BSD_MALLOC' "$ON_SYSTEM_H"; then
     patch -d "$SCRIPT_DIR/third_party/opennurbs" -p1 < "$SCRIPT_DIR/patches/opennurbs_bsd_malloc.patch"
 fi
 
+# OpenNURBS uses size_t indices into ON_SimpleArray<int> in opennurbs_material.cpp.
+# On OpenBSD (and other BSDs) size_t is "unsigned long", which is not matched by
+# any of ON_SimpleArray's operator[] overloads (int, unsigned int, ON__INT64,
+# ON__UINT64), causing an ambiguous overload compile error with Clang. The same
+# workaround already exists for ON_RUNTIME_WASM; extend it to BSDs.
+ON_MATERIAL="$SCRIPT_DIR/third_party/opennurbs/opennurbs_material.cpp"
+if [ -f "$ON_MATERIAL" ] && ! grep -q '__OpenBSD__' "$ON_MATERIAL"; then
+    echo "Patching $ON_MATERIAL for BSD size_t indexing..."
+    patch -d "$SCRIPT_DIR/third_party/opennurbs" -p1 < "$SCRIPT_DIR/patches/opennurbs_bsd_size_t.patch"
+fi
+
 PYTHON_ROOT_DIR="${Python_ROOT_DIR:-$("$PYTHON_BIN" -c "import sys; print(sys.prefix)")}"
 
 cmake -S . -B build -G Ninja \
