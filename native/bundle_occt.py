@@ -411,13 +411,26 @@ _THIRDPARTY_DLL_PATTERNS = {
     "zlib.dll", "zlib1.dll", "winmm.dll",
 }
 
+# Microsoft Visual C++ runtime DLLs that must ship with the module so it loads
+# on machines that do not have the redistributable installed. The 2015-2022
+# runtimes are ABI-compatible and share these names.
+_VCRuntime_DLLS = {
+    "vcruntime140.dll", "vcruntime140_1.dll",
+    "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll",
+    "vcruntime140_clr0400.dll", "vcruntime140_threads_synch.dll",
+    "msvcp140_codecvt_ids.dll",
+    "concrt140.dll", "vcamp140.dll", "vccorlib140.dll",
+}
+
 
 def _should_bundle_dll(name: str):
-    """Return True for OCCT TK* DLLs and known 3rdparty runtime DLLs."""
+    """Return True for OCCT TK* DLLs, known 3rdparty runtime DLLs, and VC++ redist DLLs."""
     low = name.lower()
     if low.startswith("tk"):
         return True
     if low in _THIRDPARTY_DLL_PATTERNS:
+        return True
+    if low in _VCRuntime_DLLS:
         return True
     return False
 
