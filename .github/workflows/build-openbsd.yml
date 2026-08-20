@@ -57,7 +57,7 @@ jobs:
 
           # OpenBSD ships OCCT 7.9.x in ports; the Hippo3D CMake will use the
           # system OpenCASCADE if no local OCCT 8.0.0 is present.
-          sudo pkg_add -I git cmake ninja "python-${PYTHON_VERSION}" py3-pybind11 opencascade zip
+          sudo pkg_add -I git cmake ninja "python-${PYTHON_VERSION}" py3-pybind11 opencascade zip patchelf
 
           cd "$GITHUB_WORKSPACE/native/third_party/opennurbs"
           git fetch origin
@@ -70,6 +70,34 @@ jobs:
           cd "$GITHUB_WORKSPACE/native"
           chmod +x ./package_bsd.sh
           VERSION="$TARGET_VERSION" FLAVOR="$FLAVOR" PLATFORM="$HIPPO_PLATFORM" ZIP_BASE="Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${HIPPO_PLATFORM}-python${PY_TAG}" ./package_bsd.sh
+
+      - name: Smoke-test native module import in OpenBSD VM
+        shell: cpa.sh {0} --environment-variables PYTHON_VERSION HIPPO_PLATFORM
+        env:
+          PYTHON_VERSION: ${{ matrix.python_version }}
+          HIPPO_PLATFORM: ${{ env.HIPPO_PLATFORM }}
+        run: |
+          set -euo pipefail
+          PY_TAG="${PYTHON_VERSION%%.*}${PYTHON_VERSION#*.}"
+          PY_SHORT="${PYTHON_VERSION%.*}"
+          ZIP="$GITHUB_WORKSPACE/dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${HIPPO_PLATFORM}-python${PY_TAG}.zip"
+          TMPDIR="$(mktemp -d)"
+          unzip -q "$ZIP" -d "$TMPDIR"
+          NATIVE_DIR="$TMPDIR/Hippo3D/native/${HIPPO_PLATFORM}"
+          "python${PY_SHORT}" -c "
+import sys, glob, importlib.util
+mods = sorted(glob.glob('$NATIVE_DIR/hippo_occ_core*.so'))
+if not mods:
+    raise SystemExit('No native module found')
+mod_path = mods[-1]
+print('Testing import of', mod_path)
+spec = importlib.util.spec_from_file_location('hippo_occ_core', mod_path)
+mod = importlib.util.module_from_spec(spec)
+sys.modules['hippo_occ_core'] = mod
+spec.loader.exec_module(mod)
+print('SUCCESS:', mod.make_box_mesh(1,1,1).keys())
+"
+          rm -rf "$TMPDIR"
 
       - name: Verify ZIP exists
         run: |

@@ -268,7 +268,7 @@ cd native
 ./build_freebsd.sh
 ```
 
-The script searches for Python under `/usr/local/bin/python3*` and auto-detects OCCT in `/usr/local`.
+The script searches for Python under `/usr/local/bin/python3*` (preferring the version used by Blender 5.0.1) and auto-detects OCCT in `/usr/local`.
 
 ### Manual CMake
 
@@ -284,6 +284,7 @@ cmake --build build
 
 ### Notes
 
+- The FreeBSD Blender package is currently **Blender 5.0.1**, which uses **Python 3.11.15**. The build script therefore prefers `/usr/local/bin/python3.11` so the produced `hippo_occ_core` module is ABI-compatible with Blender's bundled interpreter.
 - Install prerequisites: `pkg install cmake ninja py311-pybind11 opencascade`
 - The legacy `opennurbs/makefile` also works on FreeBSD with `gmake`.
 
@@ -298,7 +299,7 @@ cd native
 ./build_openbsd.sh
 ```
 
-The script searches for Python under `/usr/local/bin/python3*` and auto-detects OCCT in `/usr/local`.
+The script searches for Python under `/usr/local/bin/python3*` (preferring the version used by Blender 4.5.3 LTS) and auto-detects OCCT in `/usr/local`.
 
 ### Manual CMake
 
@@ -306,14 +307,15 @@ The script searches for Python under `/usr/local/bin/python3*` and auto-detects 
 cd native
 rm -rf build
 cmake -S . -B build -G Ninja \
-  -DPython_EXECUTABLE=/usr/local/bin/python3.11 \
-  -Dpybind11_DIR=$(/usr/local/bin/python3.11 -m pybind11 --cmakedir) \
+  -DPython_EXECUTABLE=/usr/local/bin/python3.13 \
+  -Dpybind11_DIR=$(/usr/local/bin/python3.13 -m pybind11 --cmakedir) \
   -DHIPPO_PLATFORM_FOLDER=openbsd-x64
 cmake --build build
 ```
 
 ### Notes
 
+- The OpenBSD Blender package is currently **Blender 4.5.3 LTS**, which uses **Python 3.13.13**. The build script therefore prefers `/usr/local/bin/python3.13` so the produced `hippo_occ_core` module is ABI-compatible with Blender's bundled interpreter.
 - Install prerequisites: `pkg_add cmake ninja py3-pybind11 opencascade`
 - OpenBSD bundles `uuid` support in `libc`, so no extra UUID library flags are needed.
 - The legacy `opennurbs/makefile` also works on OpenBSD with `gmake`.

@@ -30,8 +30,8 @@ if [ ! -d "$NATIVE_DIR" ]; then
     exit 1
 fi
 
-if [ ! -f "$NATIVE_DIR/hippo_occ_core.so" ]; then
-    echo "ERROR: No hippo_occ_core.so found in $NATIVE_DIR"
+if [ ! -f "$NATIVE_DIR"/hippo_occ_core*.so ]; then
+    echo "ERROR: No hippo_occ_core*.so found in $NATIVE_DIR"
     exit 1
 fi
 
@@ -68,64 +68,41 @@ for d in kernels icons; do
     fi
 done
 
-# Copy native module
-cp "$NATIVE_DIR/hippo_occ_core.so" "$OUTPUT_DIR/Hippo3D/native/$PLATFORM/"
+# Remove stale bytecode from the build host so it cannot cause wrong-ABI .pyc
+# errors inside Blender.
+find "$OUTPUT_DIR/Hippo3D" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+
+# Copy native module (preserve ABI-tagged name)
+cp -L "$NATIVE_DIR"/hippo_occ_core*.so "$OUTPUT_DIR/Hippo3D/native/$PLATFORM/"
 
 # Bundle OCCT and 3rdparty .dylibs from the native folder
-cp "$NATIVE_DIR"/*.dylib "$OUTPUT_DIR/Hippo3D/native/$PLATFORM/" 2>/dev/null || true
+cp -L "$NATIVE_DIR"/*.dylib "$OUTPUT_DIR/Hippo3D/native/$PLATFORM/" 2>/dev/null || true
 
 # Fix install names so the module and bundled dylibs find each other via @loader_path
 BUNDLE_DIR="$OUTPUT_DIR/Hippo3D/native/$PLATFORM"
 
 echo "Fixing install names in $BUNDLE_DIR ..."
 
-# Make every bundled dylib relocatable: its own id becomes @loader_path/<name>
+# Make every bundled dylib relocatable: consistently use @loader_path/<name>
 for lib in "$BUNDLE_DIR"/*.dylib; do
     [ -f "$lib" ] || continue
     name="$(basename "$lib")"
     install_name_tool -id "@loader_path/$name" "$lib" 2>/dev/null || true
-    install_name_tool -id "@rpath/$name" "$lib" 2>/dev/null || true
 done
 
 # Rewrite library references inside the module and between bundled dylibs.
-# Pipelines are wrapped in functions so a grep/awk non-zero exit does not
-# trigger pipefail.
-for target in "$BUNDLE_DIR"/hippo_occ_core.so "$BUNDLE_DIR"/*.dylib; do
+# Any @rpath/... or absolute reference to a library that is present in the
+# bundle is replaced with @loader_path/<basename>.
+for target in "$BUNDLE_DIR"/hippo_occ_core*.so "$BUNDLE_DIR"/*.dylib; do
     [ -f "$target" ] || continue
-    for lib in "$BUNDLE_DIR"/*.dylib; do
-        [ -f "$lib" ] || continue
-        name="$(basename "$lib")"
-        # Replace absolute references to this library name with @loader_path/<name>
-        refs="$(otool -L "$target" 2>/dev/null | grep -E "/$name " | awk '{print $1}' || true)"
-        while IFS= read -r oldref; do
-            [ -n "$oldref" ] || continue
-            install_name_tool -change "$oldref" "@loader_path/$name" "$target" 2>/dev/null || true
-        done <<< "$refs"
-    done
-    # Replace @rpath references inside the module and bundled dylibs with
-    # @loader_path so the bundled libraries resolve without extra DYLD setup.
-    refs="$(otool -L "$target" 2>/dev/null | grep -E '@rpath/libTK[A-Za-z0-9_]+\.dylib' | awk '{print $1}' || true)"
-    while IFS= read -r oldref; do
-        [ -n "$oldref" ] || continue
-        name="$(basename "$oldref")"
+    while IFS= read -r ref; do
+        [ -n "$ref" ] || continue
+        # ref is something like "@rpath/libTKernel.8.0.dylib" or "/usr/local/lib/libTKernel.8.0.dylib"
+        name="$(basename "$ref")"
         if [ -f "$BUNDLE_DIR/$name" ]; then
-            install_name_tool -change "$oldref" "@loader_path/$name" "$target" 2>/dev/null || true
+            install_name_tool -change "$ref" "@loader_path/$name" "$target" 2>/dev/null || true
         fi
-    done <<< "$refs"
-    # Also rewrite @rpath/libTK*.8.0.dylib references that may use a versioned
-    # name different from the bundled real file (e.g. libTKernel.8.0.dylib).
-    for lib in "$BUNDLE_DIR"/*.dylib; do
-        [ -f "$lib" ] || continue
-        soname="$(basename "$lib" | sed -E 's/\.8\.0\.0\.dylib$/.8.0.dylib/')"
-        if [ -n "$soname" ]; then
-            refs="$(otool -L "$target" 2>/dev/null | grep -E "@rpath/$soname " | awk '{print $1}' || true)"
-            while IFS= read -r oldref; do
-                [ -n "$oldref" ] || continue
-                realname="$(basename "$lib")"
-                install_name_tool -change "$oldref" "@loader_path/$realname" "$target" 2>/dev/null || true
-            done <<< "$refs"
-        fi
-    done
+    done <<< "$(otool -L "$target" 2>/dev/null | awk 'NR>1{print $1}' || true)"
 done
 
 rm -f "$ZIP_PATH"

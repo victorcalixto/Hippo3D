@@ -386,21 +386,35 @@ Write-Host "Bundling OCCT/3rdparty DLLs ..."
 
 # Blender's bundled Python DLLs are required at runtime but are not part of
 # OCCT. Copy them from the Blender install tree next to the module so the
-# add-on folder is self-contained.
+# add-on folder is self-contained. Derive the versioned DLL name from the
+# interpreter used for the build (e.g. python311.dll for Python 3.11).
+$pyVersionOutput = & $PythonExecutable --version 2>&1
+$pyMajor = $pyMinor = 0
+if ($pyVersionOutput -match "Python (\d+)\.(\d+)") {
+    $pyMajor = $matches[1]
+    $pyMinor = $matches[2]
+}
 $pythonDllDir = Split-Path $PythonExecutable -Parent
-foreach ($dll in @("python3.dll", "python313.dll")) {
+$versionedDll = "python${pyMajor}${pyMinor}.dll"
+foreach ($dll in @("python3.dll", $versionedDll)) {
     $src = Join-Path $pythonDllDir $dll
     if (-not (Test-Path $src)) {
         # Portable Blender layout: DLLs live at the top-level Blender folder
-        $candidate = Join-Path (Split-Path $pythonDllDir -Parent -Resolve) ".." $dll
-        $candidate = Resolve-Path $candidate -ErrorAction SilentlyContinue
-        if ($candidate -and (Test-Path $candidate)) {
-            $src = $candidate
+        try {
+            $candidate = Join-Path (Split-Path $pythonDllDir -Parent) ".." $dll
+            $candidate = Resolve-Path $candidate -ErrorAction SilentlyContinue
+            if ($candidate -and (Test-Path $candidate)) {
+                $src = $candidate
+            }
+        } catch {
+            # Ignore resolution errors and keep the original (non-existent) path.
         }
     }
     if (Test-Path $src) {
         Copy-Item $src -Destination $outDir -Force
         Write-Host "  copied $dll"
+    } else {
+        Write-Warning "Could not locate $dll next to the build Python. The packaged add-on may fail to load if Blender does not provide it."
     }
 }
 

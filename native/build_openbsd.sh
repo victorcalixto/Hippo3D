@@ -5,10 +5,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # OpenBSD Python frameworks are typically python3.x or python-3.x
+# Blender 4.5.3 LTS on OpenBSD currently uses Python 3.13.13.
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
-    for P in /usr/local/bin/python3.11 /usr/local/bin/python3.10 /usr/local/bin/python3; do
+    # Fallback to common OpenBSD paths (prefer Python 3.13 for Blender 4.5.3 LTS)
+    for P in /usr/local/bin/python3.13 /usr/local/bin/python3.12 /usr/local/bin/python3.11 /usr/local/bin/python3.10 /usr/local/bin/python3; do
         if [ -x "$P" ]; then
             PYTHON_BIN="$P"
             break
@@ -65,9 +67,13 @@ if [ -f "$ON_SYSTEM_H" ] && ! grep -q 'HIPPO_BSD_MALLOC' "$ON_SYSTEM_H"; then
     patch -d "$SCRIPT_DIR/third_party/opennurbs" -p1 < "$SCRIPT_DIR/patches/opennurbs_bsd_malloc.patch"
 fi
 
+PYTHON_ROOT_DIR="${Python_ROOT_DIR:-$("$PYTHON_BIN" -c "import sys; print(sys.prefix)")}"
+
 cmake -S . -B build -G Ninja \
     -DPython_EXECUTABLE="$PYTHON_BIN" \
     -DPYTHON_EXECUTABLE="$PYTHON_BIN" \
+    -DPython_ROOT_DIR="$PYTHON_ROOT_DIR" \
+    -DPython_FIND_STRATEGY=LOCATION \
     -Dpybind11_DIR="$PYBIND11_DIR" \
     -DHIPPO_PLATFORM_FOLDER="$PLATFORM_FOLDER"
 

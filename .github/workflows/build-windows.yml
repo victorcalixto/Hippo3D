@@ -40,27 +40,48 @@ jobs:
           git fetch origin
           git checkout 2fc39db962678b44ee710f887a04fc38f8d4b883
 
-      - name: Set up Python ${{ matrix.python_version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python_version }}
+      - name: Download portable Blender for Python ABI match
+        shell: pwsh
+        env:
+          PYTHON_VERSION: ${{ matrix.python_version }}
+        run: |
+          $pyShort = "${env:PYTHON_VERSION}".Substring(0, 3).Replace(".", "")
+          # Windows users report:
+          #   Blender 5.0 -> Python 3.11
+          #   Blender 5.2 -> Python 3.13
+          switch ($pyShort) {
+            "311" { $blenderVer = "5.0" }
+            "313" { $blenderVer = "5.2" }
+            default { throw "Unsupported Python version $env:PYTHON_VERSION" }
+          }
+          $url = "https://download.blender.org/release/Blender${blenderVer}/blender-${blenderVer}.0-windows-x64.zip"
+          $archive = "$env:TEMP\blender-${blenderVer}.0-windows-x64.zip"
+          Write-Host "Downloading Blender ${blenderVer} portable for Python ${env:PYTHON_VERSION} ..."
+          curl.exe -L -o $archive $url --max-time 600
+          if (-not (Test-Path $archive)) { throw "Failed to download Blender portable" }
+          Expand-Archive -Path $archive -DestinationPath "C:\BlenderPy" -Force
+          $blenderRoot = (Get-ChildItem -Path "C:\BlenderPy" -Directory | Select-Object -First 1).FullName
+          $blenderPy = Join-Path $blenderRoot "$blenderVer\python\bin\python.exe"
+          if (-not (Test-Path $blenderPy)) {
+            $blenderPy = Join-Path $blenderRoot "python\bin\python.exe"
+          }
+          if (-not (Test-Path $blenderPy)) { throw "Blender python.exe not found under $blenderRoot" }
+          $dev = Split-Path $blenderPy -Parent
+          "BLENDER_PYTHON=$blenderPy" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "PYTHON_DEV_DIR=$dev" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "BLENDER_PYTHON=$blenderPy"
+          Write-Host "PYTHON_DEV_DIR=$dev"
 
-      - name: Install pybind11
+      - name: Install pybind11 into Blender Python
         shell: pwsh
         run: |
-          python -m pip install --upgrade pip pybind11
+          & "$env:BLENDER_PYTHON" -m pip install --upgrade pip pybind11
 
-      # The build needs pythonXY.lib. actions/setup-python does install the
-      # full Python dev tree on Windows, so expose it to the build script.
       - name: Expose Python dev tree
         shell: pwsh
         run: |
-          $py = (Get-Command python).Source
-          # actions/setup-python on Windows installs include/ and libs/ in the
-          # same directory that contains python.exe (e.g. ...\Python\3.13.9\x64).
-          $dev = Split-Path $py -Parent
-          Write-Host "PYTHON_DEV_DIR=$dev"
-          "PYTHON_DEV_DIR=$dev" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "PYTHON_DEV_DIR=$env:PYTHON_DEV_DIR"
+          & "$env:BLENDER_PYTHON" --version
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -138,7 +159,7 @@ jobs:
           $env:OCCT_ROOT = $env:OCCT_ROOT
           $env:3RDPARTY_DIR = $env:3RDPARTY_DIR
           cd native
-          .\build_windows.ps1 -PythonExecutable (Get-Command python).Source -PlatformFolder "$env:HIPPO_PLATFORM"
+          .\build_windows.ps1 -PythonExecutable "$env:BLENDER_PYTHON" -PlatformFolder "$env:HIPPO_PLATFORM"
 
       - name: Package add-on
         shell: pwsh
@@ -146,7 +167,7 @@ jobs:
           $parts = "${{ matrix.python_version }}".Split(".")
           $pyShort = $parts[0] + $parts[1]
           $zipName = "Hippo3D-v${env:TARGET_VERSION}-${env:FLAVOR}-${env:HIPPO_PLATFORM}-python${pyShort}"
-          .\package_addon.ps1 -Platform "$env:HIPPO_PLATFORM" -ZipName "$zipName"
+          .\package_addon.ps1 -Platform "$env:HIPPO_PLATFORM" -ZipName "$zipName" -PythonVersion "${{ matrix.python_version }}"
 
       - name: Verify ZIP exists
         shell: pwsh
@@ -156,6 +177,30 @@ jobs:
           $zip = "dist\Hippo3D-v${env:TARGET_VERSION}-${env:FLAVOR}-${env:HIPPO_PLATFORM}-python${pyShort}.zip"
           if (-not (Test-Path $zip)) { throw "ZIP not found: $zip" }
           Get-Item $zip
+
+      - name: Smoke-test native module import
+        shell: pwsh
+        run: |
+          $parts = "${{ matrix.python_version }}".Split(".")
+          $pyShort = $parts[0] + $parts[1]
+          $zip = "dist\Hippo3D-v${env:TARGET_VERSION}-${env:FLAVOR}-${env:HIPPO_PLATFORM}-python${pyShort}.zip"
+          $tmp = "$env:TEMP\hippo_test"
+          if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
+          Expand-Archive -Path $zip -DestinationPath $tmp -Force
+          $nativeDir = "$tmp\Hippo3D\native\$env:HIPPO_PLATFORM"
+          $env:PATH = "$nativeDir;" + $env:PATH
+          $mod = Get-ChildItem -Path $nativeDir -Filter "hippo_occ_core*.pyd" | Sort-Object Name | Select-Object -Last 1
+          if (-not $mod) { throw "No native module found in $nativeDir" }
+          Write-Host "Testing import of" $mod.FullName
+          & "$env:BLENDER_PYTHON" -c "
+import sys, importlib.util
+sys.path.insert(0, r'$nativeDir')
+spec = importlib.util.spec_from_file_location('hippo_occ_core', r'$( $mod.FullName )')
+mod = importlib.util.module_from_spec(spec)
+sys.modules['hippo_occ_core'] = mod
+spec.loader.exec_module(mod)
+print('SUCCESS:', mod.make_box_mesh(1,1,1).keys())
+"
 
       - name: Upload ZIP as workflow artifact
         uses: actions/upload-artifact@v4

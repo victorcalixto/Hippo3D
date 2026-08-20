@@ -57,6 +57,10 @@ jobs:
           # The python.org installer puts binaries under /Library/Frameworks/Python.framework/Versions/${PY_SHORT}
           echo "/Library/Frameworks/Python.framework/Versions/${PY_SHORT}/bin" >> "$GITHUB_PATH"
           echo "PYTHON_BIN=/Library/Frameworks/Python.framework/Versions/${PY_SHORT}/bin/python${PY_SHORT}" >> "$GITHUB_ENV"
+          # Expose the framework root so CMake links against the same libPython
+          # used at runtime.  Pybind11's CMake logic needs this to be consistent
+          # with the interpreter we pass via -DPython_EXECUTABLE.
+          echo "Python_ROOT_DIR=/Library/Frameworks/Python.framework/Versions/${PY_SHORT}" >> "$GITHUB_ENV"
         env:
           PYTHON_VERSION: ${{ matrix.python_version }}
 
@@ -80,6 +84,7 @@ jobs:
           PLATFORM_FOLDER: ${{ matrix.platform }}
           PYTHON_VERSION: ${{ matrix.python_version }}
           OCCT_ROOT: ${{ env.OCCT_ROOT }}
+          Python_ROOT_DIR: ${{ env.Python_ROOT_DIR }}
         run: |
           chmod +x native/build_macos.sh
           cd native
@@ -98,6 +103,31 @@ jobs:
           chmod +x native/package_macos.sh
           cd native
           OSX_ARCH="${OSX_ARCH}" VERSION="${VERSION}" FLAVOR="${FLAVOR}" ZIP_BASE="${ZIP_BASE}" ./package_macos.sh
+
+      - name: Smoke-test native module import
+        run: |
+          PY_SHORT="${PYTHON_VERSION%.*}"
+          PY_TAG="${PY_SHORT//./}"
+          ZIP="dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${{ matrix.platform }}-python${PY_TAG}.zip"
+          TMPDIR="$(mktemp -d)"
+          unzip -q "$ZIP" -d "$TMPDIR"
+          NATIVE_DIR="$TMPDIR/Hippo3D/native/${{ matrix.platform }}"
+          "$PYTHON_BIN" -c "
+import sys, glob, importlib.util
+mods = sorted(glob.glob('$NATIVE_DIR/hippo_occ_core*.so'))
+if not mods:
+    raise SystemExit('No native module found')
+mod_path = mods[-1]
+print('Testing import of', mod_path)
+spec = importlib.util.spec_from_file_location('hippo_occ_core', mod_path)
+mod = importlib.util.module_from_spec(spec)
+sys.modules['hippo_occ_core'] = mod
+spec.loader.exec_module(mod)
+print('SUCCESS:', mod.make_box_mesh(1,1,1).keys())
+"
+          rm -rf "$TMPDIR"
+        env:
+          PYTHON_VERSION: ${{ matrix.python_version }}
 
       - name: Verify ZIP exists
         run: |

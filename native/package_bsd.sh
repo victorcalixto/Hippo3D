@@ -62,9 +62,26 @@ for d in kernels icons; do
     fi
 done
 
-# Copy native module and bundled shared libraries
-cp "$NATIVE_DIR"/hippo_occ_core*.so "$OUTPUT_DIR/Hippo3D/native/$PLATFORM/"
-cp "$NATIVE_DIR"/*.so* "$OUTPUT_DIR/Hippo3D/native/$PLATFORM/" 2>/dev/null || true
+# Remove stale bytecode from the build host so it cannot cause wrong-ABI .pyc
+# errors inside Blender.
+find "$OUTPUT_DIR/Hippo3D" -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+
+# Copy native module and bundled shared libraries.
+# `*.so*` catches both the real ABI-tagged .so (e.g. .cpython-311.so) and the
+# SONAME symlinks created by bundle_occt.py (e.g. libTKernel.so.8.0).
+# We use -L so symlinks are followed and real files land in the package.
+cp -L "$NATIVE_DIR"/hippo_occ_core*.so "$OUTPUT_DIR/Hippo3D/native/$PLATFORM/"
+cp -L "$NATIVE_DIR"/*.so* "$OUTPUT_DIR/Hippo3D/native/$PLATFORM/" 2>/dev/null || true
+
+# Ensure the module and all bundled libraries have $ORIGIN RPATH/RUNPATH set.
+# Modifying LD_LIBRARY_PATH inside Blender is too late for the dynamic linker.
+if command -v patchelf >/dev/null 2>&1; then
+    for lib in "$OUTPUT_DIR/Hippo3D/native/$PLATFORM"/*.so*; do
+        [ -f "$lib" ] || continue
+        file "$lib" | grep -q "ELF" || continue
+        patchelf --set-rpath '$ORIGIN' "$lib" 2>/dev/null || true
+    done
+fi
 
 rm -f "$ZIP_PATH"
 (cd "$OUTPUT_DIR" && zip -r "$ZIP_NAME" Hippo3D)

@@ -59,9 +59,17 @@ fi
 
 rm -rf build
 
+# Prefer an explicit Python framework root (e.g. from python.org installer or
+# Blender.app bundle) so CMake links the same libPython we run against.
+if [ -z "${Python_ROOT_DIR:-}" ]; then
+    Python_ROOT_DIR="$("$PYTHON_BIN" -c "import sys; print(sys.prefix)")"
+fi
+
 cmake -S . -B build \
     -DPython_EXECUTABLE="$PYTHON_BIN" \
     -DPYTHON_EXECUTABLE="$PYTHON_BIN" \
+    -DPython_ROOT_DIR="$Python_ROOT_DIR" \
+    -DPython_FIND_STRATEGY=LOCATION \
     -Dpybind11_DIR="$PYBIND11_DIR" \
     -DCMAKE_OSX_ARCHITECTURES="$OSX_ARCH" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET" \
@@ -79,7 +87,9 @@ if [ -z "$MODULE_PATH" ]; then
 fi
 
 mkdir -p "$PLATFORM_FOLDER"
-cp "$MODULE_PATH" "$PLATFORM_FOLDER/hippo_occ_core.so"
+# Preserve ABI-tagged names (e.g. hippo_occ_core.cpython-313-darwin.so) so the
+# loader can pick the exact Python version when multiple modules are present.
+cp "$MODULE_PATH" "$PLATFORM_FOLDER/"
 
 # ---------------------------------------------------------------------------
 # Auto-bundle OCCT libraries for standalone distribution
@@ -89,6 +99,16 @@ if [ "$BUNDLE_AUTO" = "1" ]; then
     echo
     echo "Auto-bundling OCCT shared libraries..."
     "$PYTHON_BIN" "$SCRIPT_DIR/bundle_occt.py" --platform "$PLATFORM_FOLDER" || echo "Warning: bundle_occt.py failed. Continuing anyway."
+fi
+
+# If this Python was built as a framework, pybind11 may have linked
+# libPython.dylib.  Bundle it so the add-on loads on a host without the same
+# framework installed (e.g. Blender's bundled interpreter).
+PY_SHORT="${PY_SHORT:-$("$PYTHON_BIN" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")}"
+PYTHON_LIB="$("$PYTHON_BIN" -c "import sys; print(sys.prefix)")/lib/libpython${PY_SHORT}.dylib"
+if [ -f "$PYTHON_LIB" ]; then
+    cp "$PYTHON_LIB" "$PLATFORM_FOLDER/"
+    echo "Bundled $PYTHON_LIB"
 fi
 
 echo

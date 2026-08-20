@@ -13,7 +13,6 @@ permissions:
   contents: write
 
 env:
-  PYTHON_VERSION: '3.11.15'
   OCCT_VERSION: '8.0.0'
   TARGET_VERSION: '0.3.0'
   FLAVOR: 'wip'
@@ -23,6 +22,10 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        python_version: ['3.11.15', '3.13.13']
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -57,12 +60,12 @@ jobs:
             python3-dev python3-pip python3-venv \
             libfreetype6-dev libfontconfig1-dev libxmu-dev libxi-dev \
             libgl1-mesa-dev libglu1-mesa-dev libfreeimage-dev \
-            git zip curl
+            git zip curl patchelf
 
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
+      - name: Set up Python ${{ matrix.python_version }}
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: ${{ matrix.python_version }}
 
       - name: Install pybind11
         run: |
@@ -84,22 +87,55 @@ jobs:
       - name: Package add-on
         run: |
           chmod +x package_addon.sh
-          VERSION="$TARGET_VERSION" FLAVOR="$FLAVOR" PLATFORM="$PLATFORM" OUTPUT_DIR="$(pwd)/dist" ./package_addon.sh
+          PY_TAG="${PYTHON_VERSION%%.*}${PYTHON_VERSION#*.}"
+          ZIP_BASE="Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${PLATFORM}-python${PY_TAG}"
+          VERSION="$TARGET_VERSION" FLAVOR="$FLAVOR" PLATFORM="$PLATFORM" PYTHON_VERSION="$PYTHON_VERSION" ZIP_BASE="$ZIP_BASE" OUTPUT_DIR="$(pwd)/dist" ./package_addon.sh
+        env:
+          PYTHON_VERSION: ${{ matrix.python_version }}
 
       - name: Verify ZIP exists
         run: |
-          ls -lh "dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${PLATFORM}.zip"
+          PY_TAG="${PYTHON_VERSION%%.*}${PYTHON_VERSION#*.}"
+          ls -lh "dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${PLATFORM}-python${PY_TAG}.zip"
+        env:
+          PYTHON_VERSION: ${{ matrix.python_version }}
+
+      - name: Smoke-test native module import
+        run: |
+          PY_TAG="${PYTHON_VERSION%%.*}${PYTHON_VERSION#*.}"
+          ZIP="dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${PLATFORM}-python${PY_TAG}.zip"
+          TMPDIR="$(mktemp -d)"
+          unzip -q "$ZIP" -d "$TMPDIR"
+          NATIVE_DIR="$TMPDIR/Hippo3D/native/${PLATFORM}"
+          python -c "
+import sys, glob, os, importlib.util
+mods = sorted(glob.glob('$NATIVE_DIR/hippo_occ_core*.so'))
+if not mods:
+    raise SystemExit('No native module found')
+mod_path = mods[-1]
+print('Testing import of', mod_path)
+spec = importlib.util.spec_from_file_location('hippo_occ_core', mod_path)
+mod = importlib.util.module_from_spec(spec)
+sys.modules['hippo_occ_core'] = mod
+spec.loader.exec_module(mod)
+print('SUCCESS:', mod.make_box_mesh(1,1,1).keys())
+"
+          rm -rf "$TMPDIR"
+        env:
+          PYTHON_VERSION: ${{ matrix.python_version }}
 
       - name: Upload ZIP as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.PLATFORM }}-addon
-          path: dist/Hippo3D-v${{ env.TARGET_VERSION }}-${{ env.FLAVOR }}-${{ env.PLATFORM }}.zip
+          name: ${{ env.PLATFORM }}-python${{ matrix.python_version }}-addon
+          path: dist/Hippo3D-v${{ env.TARGET_VERSION }}-${{ env.FLAVOR }}-${{ env.PLATFORM }}-python*.zip
 
       - name: Upload to GitHub release
         if: github.event.inputs.upload_to_release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PYTHON_VERSION: ${{ matrix.python_version }}
         run: |
+          PY_TAG="${PYTHON_VERSION%%.*}${PYTHON_VERSION#*.}"
           gh release upload "wip-${TARGET_VERSION}" \
-            "dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${PLATFORM}.zip" --clobber
+            "dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${PLATFORM}-python${PY_TAG}.zip" --clobber

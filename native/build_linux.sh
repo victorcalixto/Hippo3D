@@ -27,9 +27,13 @@ echo "pybind11 CMake dir: $PYBIND11_DIR"
 
 rm -rf build
 
+PYTHON_ROOT_DIR="${Python_ROOT_DIR:-$("$PYTHON_BIN" -c "import sys; print(sys.prefix)")}"
+
 cmake -S . -B build -G Ninja \
     -DPython_EXECUTABLE="$PYTHON_BIN" \
     -DPYTHON_EXECUTABLE="$PYTHON_BIN" \
+    -DPython_ROOT_DIR="$PYTHON_ROOT_DIR" \
+    -DPython_FIND_STRATEGY=LOCATION \
     -Dpybind11_DIR="$PYBIND11_DIR" \
     -DHIPPO_PLATFORM_FOLDER="linux-x64"
 
@@ -55,7 +59,7 @@ BUNDLE_AUTO="${BUNDLE_AUTO:-1}"
 if [ "$BUNDLE_AUTO" = "1" ]; then
     echo
     echo "Auto-bundling OCCT shared libraries..."
-    python3 "$SCRIPT_DIR/bundle_occt.py" --platform linux-x64 || echo "Warning: bundle_occt.py failed. Continuing anyway."
+    "$PYTHON_BIN" "$SCRIPT_DIR/bundle_occt.py" --platform linux-x64 || echo "Warning: bundle_occt.py failed. Continuing anyway."
 fi
 
 echo

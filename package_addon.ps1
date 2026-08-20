@@ -28,7 +28,8 @@
 param(
     [string]$Platform = "",
     [string]$OutputDir = "dist",
-    [string]$ZipName = ""
+    [string]$ZipName = "",
+    [string]$PythonVersion = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -53,13 +54,21 @@ if (-not (Test-Path $nativeDir)) {
     throw "Native module folder not found: $nativeDir`nPlease build first with build_windows.ps1"
 }
 
-if (-not (Test-Path (Join-Path $nativeDir "hippo_occ_core*.pyd")) -and
-    -not (Test-Path (Join-Path $nativeDir "hippo_occ_core*.so"))) {
+$pydCandidates = Get-ChildItem -Path $nativeDir -Filter "hippo_occ_core*.pyd" -ErrorAction SilentlyContinue
+$soCandidates = Get-ChildItem -Path $nativeDir -Filter "hippo_occ_core*.so" -ErrorAction SilentlyContinue
+if ((-not $pydCandidates) -and (-not $soCandidates)) {
     throw "No hippo_occ_core module found in $nativeDir. Please build first."
 }
 
 if ($ZipName -eq "") {
-    $ZipName = "Hippo3D-$Platform"
+    $pyTag = ""
+    if ($PythonVersion -ne "") {
+        $parts = $PythonVersion.Split(".")
+        if ($parts.Length -ge 2) {
+            $pyTag = "-python" + $parts[0] + $parts[1]
+        }
+    }
+    $ZipName = "Hippo3D-$Platform$pyTag"
 }
 
 $outDir = Join-Path $projectRoot $OutputDir
@@ -105,6 +114,12 @@ foreach ($dir in $addonDirs) {
     if (Test-Path $src) {
         Copy-Item -Recurse $src -Destination $stagingRoot -Force
     }
+}
+
+# Remove stale bytecode from the build host so it cannot cause wrong-ABI .pyc
+# errors inside Blender.
+Get-ChildItem -Path $stagingRoot -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue | ForEach-Object {
+    Remove-Item -Recurse -Force $_.FullName
 }
 
 # ---------------------------------------------------------------------------

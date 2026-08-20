@@ -29,14 +29,42 @@ def _platform_folder():
     raise RuntimeError(f"Unsupported platform: {system} {machine}")
 
 
+def _expected_abi_tag():
+    """Return the ABI tag fragment for the running interpreter.
+
+    Examples:
+        cpython-313-x86_64-linux-gnu
+        cpython-311-x86_64-linux-gnu
+        cp313-win_amd64
+        cp311-win_amd64
+    """
+    cache_tag = getattr(sys.implementation, "cache_tag", f"cpython-{sys.version_info.major}{sys.version_info.minor}")
+    # sysconfig.get_config_var('EXT_SUFFIX') gives us the platform triplet part
+    # (e.g. ".cpython-313-x86_64-linux-gnu.so" or ".cp311-win_amd64.pyd").
+    import sysconfig
+    ext_suffix = sysconfig.get_config_var("EXT_SUFFIX") or ""
+    # Remove the leading dot and trailing extension to get the full ABI tag.
+    if ext_suffix.startswith("."):
+        ext_suffix = ext_suffix[1:]
+    # Split on the last dot (the file extension) and keep the ABI portion.
+    abi_tag = ext_suffix.rsplit(".", 1)[0]
+    if not abi_tag:
+        abi_tag = f"{cache_tag}-{platform.machine().lower()}"
+    return abi_tag
+
+
 def _find_module(native_dir: Path, base_name: str, ext: str):
-    """Locate the module file, preferring ABI-tagged builds."""
-    # 1. Try ABI-tagged build first (e.g. hippo_occ_core.cpython-311-x86_64-linux-gnu.so)
-    # On Windows, ABI-tagged names look like hippo_occ_core.cp311-win_amd64.pyd
+    """Locate the module file matching the running interpreter's ABI."""
+    abi_tag = _expected_abi_tag()
+    # ABI-tagged candidates: base_name.<abi>.ext
     candidates = sorted(native_dir.glob(f"{base_name}.*{ext}"))
+    # Prefer a candidate whose ABI tag matches the running interpreter.
+    for candidate in candidates:
+        if abi_tag in candidate.name:
+            return candidate
+    # Fallback to the most specific ABI-tagged build, then to the plain name.
     if candidates:
-        return candidates[-1]  # newest / longest name (most specific)
-    # 2. Fallback to plain name
+        return candidates[-1]
     plain = native_dir / f"{base_name}{ext}"
     if plain.exists():
         return plain
@@ -64,8 +92,11 @@ def load_occ_core():
     if not module_path:
         raise ImportError(f"Native OCC module not found in {native_dir}")
 
-    # Extend PATH / LD_LIBRARY_PATH so dependent DLLs / .so files are found
-    # without polluting sys.path (Blender policy violation).
+    # On Windows, extend PATH before the first DLL is loaded so dependent DLLs
+    # in the same native/ folder are found. On Unix, modifying LD_LIBRARY_PATH
+    # inside the running process is too late for the dynamic linker; the real
+    # fix is $ORIGIN RPATH/RUNPATH baked into the module and bundled libraries
+    # at build/packaging time. We still set it here for child processes.
     if system == "windows":
         _original_path = os.environ.get("PATH", "")
         native_str = str(native_dir)

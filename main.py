@@ -5192,12 +5192,21 @@ def hippo_load_occ_core():
         addon_dir / "native" / "linux-x64",
         addon_dir / "native" / "macos-arm64",
         addon_dir / "native" / "macos-x64",
+        addon_dir / "native" / "freebsd-x64",
+        addon_dir / "native" / "openbsd-x64",
         addon_dir / "native" / "build",
     ]
 
+    # Determine the ABI tag of the running interpreter so we pick a matching
+    # native module when multiple Python-version flavors are bundled.
+    import sysconfig
+    ext_suffix = sysconfig.get_config_var("EXT_SUFFIX") or ""
+    abi_tag = ext_suffix[1:].rsplit(".", 1)[0] if ext_suffix.startswith(".") else ""
+
     # On Windows, DLLs must be in PATH or next to the .pyd.
-    # We temporarily extend PATH with the native directory so dependent
-    # DLLs (TKernel.dll, etc.) are found without polluting sys.path.
+    # On Unix, LD_LIBRARY_PATH changes inside the running process are too late;
+    # the real fix is $ORIGIN RPATH set at build/packaging time. We still extend
+    # PATH on Windows before any import happens.
     _original_path = os.environ.get("PATH", "")
     for native_dir in native_candidates:
         if not native_dir.exists():
@@ -5205,19 +5214,37 @@ def hippo_load_occ_core():
         native_str = str(native_dir)
         if native_str not in _original_path.split(os.pathsep):
             os.environ["PATH"] = native_str + os.pathsep + _original_path
-        # Find the module file (prefer ABI-tagged .so to avoid mismatch)
-        for pattern in ("hippo_occ_core*.pyd", "hippo_occ_core.cpython*.so", "hippo_occ_core*.so"):
-            matches = sorted(native_dir.glob(pattern))
-            if matches:
-                mod_path = matches[-1]
-                spec = importlib.util.spec_from_file_location(
-                    "hippo_occ_core", str(mod_path)
-                )
-                if spec and spec.loader:
-                    module = importlib.util.module_from_spec(spec)
-                    sys.modules["hippo_occ_core"] = module
-                    spec.loader.exec_module(module)
-                    return module
+
+        # Collect candidates: .pyd on Windows, .so on Unix/macOS.
+        candidates = []
+        candidates.extend(native_dir.glob("hippo_occ_core*.pyd"))
+        candidates.extend(native_dir.glob("hippo_occ_core*.so"))
+        if not candidates:
+            continue
+        candidates = sorted(candidates)
+
+        # Prefer an exact ABI match, otherwise fall back to the most specific
+        # ABI-tagged build, then to the plain name.
+        chosen = None
+        if abi_tag:
+            for candidate in candidates:
+                if abi_tag in candidate.name:
+                    chosen = candidate
+                    break
+        if chosen is None:
+            # Pick the most specific ABI-tagged name (longest), or the plain name
+            # if that is the only one.
+            tagged = [c for c in candidates if ".cpython" in c.name or ".cp" in c.name]
+            chosen = tagged[-1] if tagged else candidates[-1]
+
+        spec = importlib.util.spec_from_file_location(
+            "hippo_occ_core", str(chosen)
+        )
+        if spec and spec.loader:
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["hippo_occ_core"] = module
+            spec.loader.exec_module(module)
+            return module
 
     raise ImportError("hippo_occ_core native module not found in any native/ folder")
 

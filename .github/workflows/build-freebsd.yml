@@ -23,7 +23,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python_version: ['3.11', '3.13']
+        # FreeBSD Blender 5.0.1 uses Python 3.11.15.
+        python_version: ['3.11']
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -54,7 +55,7 @@ jobs:
           PY_MINOR="${PYTHON_VERSION#*.}"
           PY_TAG="${PY_MAJOR}${PY_MINOR}"
           # pybind11 is installed via pip inside the build script if needed.
-          sudo pkg install -y git cmake ninja "python${PY_TAG}" opencascade zip
+          sudo pkg install -y git cmake ninja "python${PY_TAG}" opencascade zip patchelf
 
           # FreeBSD's python package may not include pip. Bootstrap it with
           # ensurepip (or get-pip.py as a fallback) so pybind11 can install.
@@ -74,6 +75,32 @@ jobs:
           cd "$GITHUB_WORKSPACE/native"
           chmod +x ./package_bsd.sh
           VERSION="$TARGET_VERSION" FLAVOR="$FLAVOR" PLATFORM="$HIPPO_PLATFORM" ZIP_BASE="Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${HIPPO_PLATFORM}-python${PY_TAG}" ./package_bsd.sh
+
+      - name: Smoke-test native module import in FreeBSD VM
+        shell: cpa.sh {0} --environment-variables PYTHON_VERSION
+        env:
+          PYTHON_VERSION: ${{ matrix.python_version }}
+        run: |
+          set -euo pipefail
+          PY_TAG="${PYTHON_VERSION%%.*}${PYTHON_VERSION#*.}"
+          ZIP="$GITHUB_WORKSPACE/dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${HIPPO_PLATFORM}-python${PY_TAG}.zip"
+          TMPDIR="$(mktemp -d)"
+          unzip -q "$ZIP" -d "$TMPDIR"
+          NATIVE_DIR="$TMPDIR/Hippo3D/native/${HIPPO_PLATFORM}"
+          "python${PYTHON_VERSION}" -c "
+import sys, glob, importlib.util
+mods = sorted(glob.glob('$NATIVE_DIR/hippo_occ_core*.so'))
+if not mods:
+    raise SystemExit('No native module found')
+mod_path = mods[-1]
+print('Testing import of', mod_path)
+spec = importlib.util.spec_from_file_location('hippo_occ_core', mod_path)
+mod = importlib.util.module_from_spec(spec)
+sys.modules['hippo_occ_core'] = mod
+spec.loader.exec_module(mod)
+print('SUCCESS:', mod.make_box_mesh(1,1,1).keys())
+"
+          rm -rf "$TMPDIR"
 
       - name: Verify ZIP exists
         run: |
