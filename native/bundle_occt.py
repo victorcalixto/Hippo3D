@@ -224,11 +224,14 @@ def _linux_libs(module: Path):
 
 
 def _macos_libs(module: Path):
-    """Return list of absolute OCCT .dylib paths using otool -L.
+    """Return list of absolute .dylib paths to bundle on macOS.
 
-    OCCT libraries are usually referenced as @rpath/libTK<...>.8.0.dylib.  We
-    resolve those against the OCCT installation root (OCCT_ROOT) and its lib/
-    directory, and also collect any absolute-path OCCT references.
+    We recursively collect every non-system shared library dependency of the
+    native module using otool -L. OCCT libraries are usually referenced as
+    @rpath/libTK<...>.8.0.dylib, while 3rdparty deps (tbb, freetype, ...) may
+    live under the OCCT install tree, Homebrew prefixes, or system library
+    paths. Anything that is not a core Apple framework/System library is copied
+    into the add-on so it loads on a clean machine.
     """
     try:
         out = subprocess.check_output(["otool", "-L", str(module)], text=True)
@@ -250,12 +253,34 @@ def _macos_libs(module: Path):
     search_dirs.append(script_dir / "third_party" / f"occt-8.0.0-{arch}" / "lib")
     search_dirs.append(script_dir / "third_party" / "occt-8.0.0" / "lib")
 
-    # Homebrew installs
-    for brew in ("/opt/homebrew/opt/opencascade", "/usr/local/opt/opencascade"):
-        search_dirs.append(Path(brew) / "lib")
+    # Homebrew / common third-party library locations
+    for prefix in (
+        "/opt/homebrew/opt/opencascade",
+        "/usr/local/opt/opencascade",
+        "/opt/homebrew/lib",
+        "/usr/local/lib",
+        "/usr/lib",
+    ):
+        search_dirs.append(Path(prefix))
 
-    libs = []
-    seen = set()
+    # System dylibs that are part of macOS and must not be bundled.
+    _MACOS_SYSTEM_PREFIXES = (
+        "/usr/lib/libSystem",
+        "/usr/lib/libc++",
+        "/usr/lib/libobjc",
+        "/usr/lib/libresolv",
+        "/System/Library/Frameworks/",
+        "/usr/lib/libpmenergy",
+        "/usr/lib/libpthread",
+        "/usr/lib/libdl",
+        "/usr/lib/libm.dylib",
+    )
+
+    def _is_system(path: str) -> bool:
+        low = path.lower()
+        if "python" in low and low.endswith(".dylib"):
+            return True
+        return any(path.startswith(p) for p in _MACOS_SYSTEM_PREFIXES) or path.startswith("/usr/lib/libSystem")
 
     def _resolve(name: str):
         for d in search_dirs:
@@ -264,31 +289,50 @@ def _macos_libs(module: Path):
                 return candidate.resolve()
         return None
 
-    for line in out.splitlines()[1:]:  # skip first line (self reference)
-        parts = line.strip().split()
-        if not parts:
-            continue
-        path = parts[0]
+    def _collect(binary: Path):
+        try:
+            raw = subprocess.check_output(["otool", "-L", str(binary)], text=True)
+        except subprocess.CalledProcessError:
+            return {}
+        deps = {}
+        for line in raw.splitlines()[1:]:  # skip self-reference
+            parts = line.strip().split()
+            if not parts:
+                continue
+            ref = parts[0]
+            deps[ref] = None
+        return deps
 
-        # Resolve @rpath references against the candidate OCCT directories.
-        if path.startswith("@rpath/"):
-            name = path[len("@rpath/"):]
-            if any(k in name for k in ("libTK", "libTKernel")):
+    libs = []
+    seen = set()
+    queue = [module]
+
+    while queue:
+        current = queue.pop(0)
+        if current in seen:
+            continue
+        seen.add(current)
+
+        for ref in _collect(current):
+            if _is_system(ref):
+                continue
+
+            if ref.startswith("@rpath/"):
+                name = ref[len("@rpath/"):]
                 real = _resolve(name)
-                if real and real not in seen:
-                    seen.add(real)
-                    libs.append(real)
-            continue
+            elif ref.startswith("@"):
+                continue
+            else:
+                p = Path(ref)
+                real = p.resolve() if p.is_file() else _resolve(p.name)
 
-        # Skip other special names.
-        if path.startswith("@"):
-            continue
-
-        # Absolute path — check if it smells like OCCT.
-        p = Path(path).resolve()
-        if any(k in p.name for k in ("libTK", "libTKernel")) and p not in seen:
-            seen.add(p)
-            libs.append(p)
+            if real is None:
+                print(f"Warning: could not locate macOS dependency {ref}")
+                continue
+            real = real.resolve()
+            if real not in seen:
+                libs.append(real)
+                queue.append(real)
 
     return libs
 
