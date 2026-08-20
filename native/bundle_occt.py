@@ -578,6 +578,14 @@ def main():
 
     if not libs:
         print("No OCCT libraries detected to bundle.")
+        # Emit diagnostics so CI logs show why bundling was skipped.
+        try:
+            raw_ldd = subprocess.check_output(["ldd", str(module)], text=True, errors="replace")
+            print("Raw ldd output:")
+            for line in raw_ldd.splitlines():
+                print("  ", line)
+        except Exception as e:
+            print(f"Could not run ldd diagnostics: {e}")
         sys.exit(0)
 
     copied = _copy_libs(libs, out_dir)
