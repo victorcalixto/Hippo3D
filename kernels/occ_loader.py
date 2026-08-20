@@ -92,16 +92,21 @@ def load_occ_core():
     if not module_path:
         raise ImportError(f"Native OCC module not found in {native_dir}")
 
-    # On Windows, extend PATH before the first DLL is loaded so dependent DLLs
-    # in the same native/ folder are found. On Unix, modifying LD_LIBRARY_PATH
-    # inside the running process is too late for the dynamic linker; the real
-    # fix is $ORIGIN RPATH/RUNPATH baked into the module and bundled libraries
-    # at build/packaging time. We still set it here for child processes.
+    # On Windows, Python 3.8+ ignores PATH for extension-module DLL resolution
+    # and instead uses the process DLL search path. We must add the native
+    # folder with os.add_dll_directory() before the .pyd is loaded. PATH is also
+    # kept for transitive dependencies loaded by those DLLs.
+    # On Unix, modifying LD_LIBRARY_PATH inside the running process is too late
+    # for the dynamic linker; the real fix is $ORIGIN RPATH/RUNPATH baked into
+    # the module and bundled libraries at build/packaging time. We still set
+    # it here for child processes.
     if system == "windows":
-        _original_path = os.environ.get("PATH", "")
         native_str = str(native_dir)
+        _original_path = os.environ.get("PATH", "")
         if native_str not in _original_path.split(os.pathsep):
             os.environ["PATH"] = native_str + os.pathsep + _original_path
+        if hasattr(os, "add_dll_directory"):
+            os.add_dll_directory(native_str)
     else:
         _original = os.environ.get("LD_LIBRARY_PATH", "")
         native_str = str(native_dir)
