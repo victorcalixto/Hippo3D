@@ -66,21 +66,28 @@ jobs:
             $blenderPy = Join-Path $blenderRoot "python\bin\python.exe"
           }
           if (-not (Test-Path $blenderPy)) { throw "Blender python.exe not found under $blenderRoot" }
-          $dev = Split-Path $blenderPy -Parent
           "BLENDER_PYTHON=$blenderPy" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "PYTHON_DEV_DIR=$dev" | Out-File -FilePath $env:GITHUB_ENV -Append
           Write-Host "BLENDER_PYTHON=$blenderPy"
+
+      # Blender's portable Python has no development headers/libs, so we also
+      # need a matching standalone Python installation that provides
+      # include/Python.h and pythonXY.lib for the C++ extension build.
+      - name: Install matching Python development files
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python_version }}
+
+      - name: Expose Python dev tree and install pybind11 into Blender Python
+        shell: pwsh
+        run: |
+          # Use the standalone Python (with headers/libs) for the C++ build.
+          $py = (Get-Command python).Source
+          $dev = Split-Path $py -Parent
+          "PYTHON_DEV_DIR=$dev" | Out-File -FilePath $env:GITHUB_ENV -Append
           Write-Host "PYTHON_DEV_DIR=$dev"
-
-      - name: Install pybind11 into Blender Python
-        shell: pwsh
-        run: |
+          # Install pybind11 into Blender's bundled Python so its CMake files
+          # and the module's runtime site-packages match Blender's interpreter.
           & "$env:BLENDER_PYTHON" -m pip install --upgrade pip pybind11
-
-      - name: Expose Python dev tree
-        shell: pwsh
-        run: |
-          Write-Host "PYTHON_DEV_DIR=$env:PYTHON_DEV_DIR"
           & "$env:BLENDER_PYTHON" --version
 
       - name: Setup MSVC
