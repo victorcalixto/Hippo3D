@@ -213,6 +213,42 @@ jobs:
           }
           $modPath = $mod.FullName
           Write-Host "Testing import of" $modPath
+          $diagFile = "$env:TEMP\hippo_diag.py"
+          $diagLines = @(
+              "import sys, os, ctypes, shutil, subprocess",
+              "native_dir = r'$nativeDir'",
+              "pyd = r'$modPath'",
+              "os.chdir(native_dir)",
+              "if hasattr(os, 'add_dll_directory'): os.add_dll_directory(native_dir)",
+              "print('Files in native dir:')",
+              "for f in sorted(os.listdir(native_dir)): print(' ', f)",
+              "dumpbin = shutil.which('dumpbin')",
+              "deps = []",
+              "if dumpbin:",
+              "    out = subprocess.check_output([dumpbin, '/dependents', pyd], text=True, errors='replace')",
+              "    in_deps = False",
+              "    for line in out.splitlines():",
+              "        if 'Image has the following dependencies:' in line:",
+              "            in_deps = True; continue",
+              "        if in_deps:",
+              "            name = line.strip()",
+              "            if not name or name.lower().startswith('summary'): break",
+              "            deps.append(name)",
+              "print('Direct dependents:', deps)",
+              "for dep in deps:",
+              "    path = os.path.join(native_dir, dep)",
+              "    exists = os.path.exists(path)",
+              "    print(f'{dep}: exists={exists}')",
+              "    if exists:",
+              "        try:",
+              "            ctypes.WinDLL(path)",
+              "            print('  -> loaded OK')",
+              "        except Exception as e:",
+              "            print(f'  -> load failed: {e}')"
+          )
+          Set-Content -Path $diagFile -Value ($diagLines -join "`n")
+          & "$env:BLENDER_PYTHON" $diagFile
+
           $testFile = "$env:TEMP\hippo_test_import.py"
           $testLines = @(
               "import sys, os, importlib.util",
