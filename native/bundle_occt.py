@@ -65,6 +65,15 @@ _SYSTEM_LIBS = {
 }
 
 
+# Known non-OCCT third-party libraries that may be pulled in by OCCT and should
+# be bundled so the add-on works on a clean machine.
+_THIRDPARTY_SONAME_PREFIXES = {
+    "libtbb", "libfreetype", "libfreeimage", "libjemalloc",
+    "libavcodec", "libavformat", "libavutil", "libswscale",
+    "libpng", "libjpeg", "libtiff", "libz", "libzlib",
+}
+
+
 def _is_system_lib(name: str):
     """Return True if the library is a standard system C/C++ runtime."""
     low = name.lower()
@@ -74,8 +83,20 @@ def _is_system_lib(name: str):
     return False
 
 
+def _is_occt_or_bundled_thirdparty(name: str):
+    """Return True for OCCT TK* libs and known runtime dependencies."""
+    low = name.lower()
+    if low.startswith("libtk"):
+        return True
+    for prefix in _THIRDPARTY_SONAME_PREFIXES:
+        if low.startswith(prefix):
+            return True
+    return False
+
+
 def _linux_libs(module: Path):
     """Return list of absolute OCCT and 3rdparty .so paths using ldd."""
+    system = platform.system().lower()
     try:
         out = subprocess.check_output(["ldd", str(module)], text=True)
     except FileNotFoundError:
@@ -95,6 +116,12 @@ def _linux_libs(module: Path):
                     search_dirs.append(p)
     if occt_local.is_dir():
         search_dirs.append(occt_local)
+    # On BSDs the system OCCT package lives under /usr/local/lib.
+    if system in ("freebsd", "openbsd", "netbsd"):
+        for d in ("/usr/local/lib", "/usr/X11R6/lib"):
+            p = Path(d)
+            if p.is_dir() and p not in search_dirs:
+                search_dirs.append(p)
 
     def _collect_ldd(binary: Path):
         """Return dict {soname: absolute_path_or_None} for a binary."""
@@ -104,19 +131,33 @@ def _linux_libs(module: Path):
             return {}
         deps = {}
         for line in raw.splitlines():
-            if "=>" not in line:
+            line = line.strip()
+            if not line:
                 continue
-            lib_name, rest = line.split("=>", 1)
-            lib_name = lib_name.strip()
-            parts = rest.strip().split()
-            if parts and parts[0].startswith("/"):
-                p = Path(parts[0])
-                if p.exists():
-                    deps[lib_name] = p
+            # Linux format:   libfoo.so => /path/libfoo.so (0x...)
+            # BSD format:     libfoo.so.0 /path/libfoo.so.0 (no =>)
+            if "=>" in line:
+                lib_name, rest = line.split("=>", 1)
+                lib_name = lib_name.strip()
+                parts = rest.strip().split()
+                if parts and parts[0].startswith("/"):
+                    p = Path(parts[0])
+                    if p.exists():
+                        deps[lib_name] = p
+                    else:
+                        deps[lib_name] = None
                 else:
                     deps[lib_name] = None
             else:
-                deps[lib_name] = None
+                # BSD: first token is soname, remaining tokens include path
+                parts = line.split()
+                if len(parts) >= 2 and parts[1].startswith("/"):
+                    lib_name = parts[0]
+                    p = Path(parts[1])
+                    if p.exists():
+                        deps[lib_name] = p
+                    else:
+                        deps[lib_name] = None
         return deps
 
     def _resolve_not_found(lib_name):
@@ -124,6 +165,11 @@ def _linux_libs(module: Path):
             candidate = d / lib_name
             if candidate.exists():
                 return candidate
+            # BSD libs are versioned, e.g. libTKernel.so.83.0; try globbing.
+            if system in ("freebsd", "openbsd", "netbsd"):
+                matches = sorted(d.glob(f"{lib_name}*"))
+                if matches:
+                    return matches[0]
         return None
 
     # Breadth-first traversal of dependency tree
@@ -141,12 +187,12 @@ def _linux_libs(module: Path):
         for lib_name, lib_path in deps.items():
             if _is_system_lib(lib_name):
                 continue
+            if not _is_occt_or_bundled_thirdparty(lib_name):
+                continue
             if lib_path is None:
                 lib_path = _resolve_not_found(lib_name)
             if lib_path is None or not lib_path.exists():
-                # Only warn for OCCT libs; silently skip other missing ones
-                if lib_name.lower().startswith("libtk"):
-                    print(f"Warning: could not locate {lib_name}")
+                print(f"Warning: could not locate {lib_name}")
                 continue
             real = lib_path.resolve()
             if real not in visited:
