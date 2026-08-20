@@ -221,6 +221,16 @@ jobs:
           name: ${{ env.HIPPO_PLATFORM }}-python${{ matrix.python_version }}-addon
           path: dist\Hippo3D-v${{ env.TARGET_VERSION }}-${{ env.FLAVOR }}-${{ env.HIPPO_PLATFORM }}-python*.zip
 
+      - name: Clean up stale release assets
+        if: github.event.inputs.upload_to_release == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $parts = "${{ matrix.python_version }}".Split(".")
+          $pyShort = $parts[0] + $parts[1]
+          bash .github/scripts/cleanup_release_assets.sh "$env:TARGET_VERSION" "$env:FLAVOR" "$env:HIPPO_PLATFORM" "$pyShort"
+
       - name: Upload to GitHub release
         if: github.event.inputs.upload_to_release == 'true'
         shell: pwsh

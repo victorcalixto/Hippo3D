@@ -14,7 +14,8 @@ OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_ROOT/dist}"
 if [ -n "${ZIP_BASE:-}" ]; then
     ZIP_NAME="${ZIP_BASE}.zip"
 elif [ -n "$PYTHON_VERSION" ]; then
-    PY_TAG="${PYTHON_VERSION%%.*}${PYTHON_VERSION#*.}"
+    PY_SHORT="${PYTHON_VERSION%.*}"
+    PY_TAG="${PY_SHORT//./}"
     ZIP_NAME="Hippo3D-v${VERSION}-${FLAVOR}-${PLATFORM}-python${PY_TAG}.zip"
 else
     ZIP_NAME="Hippo3D-v${VERSION}-${FLAVOR}-${PLATFORM}.zip"

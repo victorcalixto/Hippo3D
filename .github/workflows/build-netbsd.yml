@@ -52,7 +52,7 @@ jobs:
           set -euo pipefail
           PY_MAJOR="${PYTHON_VERSION%%.*}"
           PY_MINOR="${PYTHON_VERSION#*.}"
-          PY_TAG="${PY_MAJOR}${PY_MINOR}"
+          PY_TAG="${PY_MAJOR}${PY_MINOR%%.*}"
 
           # NetBSD package collection names. OCCT is packaged as 'occt'.
           sudo pkgin -y install git cmake ninja "python${PY_TAG}" "py${PY_TAG}-pybind11" occt zip patchelf
@@ -79,7 +79,8 @@ jobs:
           PYTHON_VERSION: ${{ matrix.python_version }}
         run: |
           set -euo pipefail
-          PY_TAG="${PYTHON_VERSION%%.*}${PYTHON_VERSION#*.}"
+          PY_SHORT="${PYTHON_VERSION%.*}"
+          PY_TAG="${PY_SHORT//./}"
           PY_SHORT="${PYTHON_VERSION%.*}"
           ZIP="$GITHUB_WORKSPACE/dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${HIPPO_PLATFORM}-python${PY_TAG}.zip"
           TMPDIR="$(mktemp -d)"
@@ -103,7 +104,8 @@ jobs:
 
       - name: Verify ZIP exists
         run: |
-          PY_TAG="${PYTHON_VERSION%%.*}${PYTHON_VERSION#*.}"
+          PY_SHORT="${PYTHON_VERSION%.*}"
+          PY_TAG="${PY_SHORT//./}"
           ls -lh "$GITHUB_WORKSPACE/dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${HIPPO_PLATFORM}-python${PY_TAG}.zip"
         env:
           PYTHON_VERSION: ${{ matrix.python_version }}
@@ -114,12 +116,24 @@ jobs:
           name: ${{ env.HIPPO_PLATFORM }}-python${{ matrix.python_version }}-addon
           path: dist/Hippo3D-v${{ env.TARGET_VERSION }}-${{ env.FLAVOR }}-${{ env.HIPPO_PLATFORM }}-python*.zip
 
+      - name: Clean up stale release assets
+        if: github.event.inputs.upload_to_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PYTHON_VERSION: ${{ matrix.python_version }}
+        run: |
+          PY_SHORT="${PYTHON_VERSION%.*}"
+          PY_TAG="${PY_SHORT//./}"
+          chmod +x .github/scripts/cleanup_release_assets.sh
+          .github/scripts/cleanup_release_assets.sh "$TARGET_VERSION" "$FLAVOR" "$HIPPO_PLATFORM" "$PY_TAG"
+
       - name: Upload to GitHub release
         if: github.event.inputs.upload_to_release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PYTHON_VERSION: ${{ matrix.python_version }}
         run: |
-          PY_TAG="${PYTHON_VERSION%%.*}${PYTHON_VERSION#*.}"
+          PY_SHORT="${PYTHON_VERSION%.*}"
+          PY_TAG="${PY_SHORT//./}"
           gh release upload "wip-${TARGET_VERSION}" \
             "dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${HIPPO_PLATFORM}-python${PY_TAG}.zip" --clobber

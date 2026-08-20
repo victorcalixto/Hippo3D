@@ -145,6 +145,17 @@ jobs:
           name: ${{ matrix.platform }}-python${{ matrix.python_version }}-addon
           path: dist/Hippo3D-v${{ env.TARGET_VERSION }}-${{ env.FLAVOR }}-${{ matrix.platform }}-python*.zip
 
+      - name: Clean up stale release assets
+        if: github.event.inputs.upload_to_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PYTHON_VERSION: ${{ matrix.python_version }}
+        run: |
+          PY_SHORT="${PYTHON_VERSION%.*}"
+          PY_TAG="${PY_SHORT//./}"
+          chmod +x .github/scripts/cleanup_release_assets.sh
+          .github/scripts/cleanup_release_assets.sh "$TARGET_VERSION" "$FLAVOR" "${{ matrix.platform }}" "$PY_TAG"
+
       - name: Upload to GitHub release
         if: github.event.inputs.upload_to_release == 'true'
         env:
