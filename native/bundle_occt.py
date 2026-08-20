@@ -412,16 +412,28 @@ def _windows_search_dirs(occt_root: Path | None):
             if sub.is_dir():
                 search_dirs.append(sub)
 
+    # 3rdparty dependencies (TBB, Tcl/Tk, FreeType, VTK, ...).
+    # The CI workflow may place these under a separate 3RDPARTY_DIR tree
+    # (e.g. C:\OCCT3rdparty\3rdparty-vc14-64) rather than next to OCCT_ROOT.
+    third_party_env = os.environ.get("3RDPARTY_DIR", "")
+    if third_party_env:
+        tp = Path(third_party_env)
+        if tp.is_dir():
+            search_dirs.append(tp)
+            for sub in tp.rglob("*"):
+                if sub.is_dir() and any(sub.glob("*.dll")):
+                    search_dirs.append(sub)
+    else:
         # Sibling 3rdparty-vc14-64 directories (OCCT Windows installer layout)
-        for parent in (occt_root.parent, occt_root.parent.parent):
-            tp = parent / "3rdparty-vc14-64"
-            if tp.is_dir():
-                search_dirs.append(tp)
-                # Recursively collect every directory that contains DLLs
-                for sub in tp.rglob("*"):
-                    if sub.is_dir() and any(sub.glob("*.dll")):
-                        search_dirs.append(sub)
-                break
+        if occt_root:
+            for parent in (occt_root.parent, occt_root.parent.parent):
+                tp = parent / "3rdparty-vc14-64"
+                if tp.is_dir():
+                    search_dirs.append(tp)
+                    for sub in tp.rglob("*"):
+                        if sub.is_dir() and any(sub.glob("*.dll")):
+                            search_dirs.append(sub)
+                    break
 
     # MSVC runtime redistributable DLLs (vcruntime140.dll, msvcp140.dll, etc.)
     vcredist = _windows_vcredist_dir()
