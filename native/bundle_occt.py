@@ -126,16 +126,16 @@ def _linux_libs(module: Path):
     def _collect_ldd(binary: Path):
         """Return dict {soname: absolute_path_or_None} for a binary."""
         try:
-            raw = subprocess.check_output(["ldd", str(binary)], text=True)
+            raw = subprocess.check_output(["ldd", str(binary)], text=True, errors="replace")
         except subprocess.CalledProcessError:
             return {}
         deps = {}
+        openbsd_header_seen = False
         for line in raw.splitlines():
             line = line.strip()
             if not line:
                 continue
             # Linux format:   libfoo.so => /path/libfoo.so (0x...)
-            # BSD format:     libfoo.so.0 /path/libfoo.so.0 (no =>)
             if "=>" in line:
                 lib_name, rest = line.split("=>", 1)
                 lib_name = lib_name.strip()
@@ -148,16 +148,30 @@ def _linux_libs(module: Path):
                         deps[lib_name] = None
                 else:
                     deps[lib_name] = None
-            else:
-                # BSD: first token is soname, remaining tokens include path
+                continue
+            # OpenBSD format:
+            #   Start            End              Type  Open Ref GrpRef Name
+            #   00000...         00000...         rlib  0    1    0      /usr/local/lib/libTKernel.so.3.0
+            if "Start" in line and "End" in line and "Type" in line and "Name" in line:
+                openbsd_header_seen = True
+                continue
+            if openbsd_header_seen:
                 parts = line.split()
-                if len(parts) >= 2 and parts[1].startswith("/"):
-                    lib_name = parts[0]
-                    p = Path(parts[1])
-                    if p.exists():
-                        deps[lib_name] = p
-                    else:
-                        deps[lib_name] = None
+                if len(parts) >= 6 and parts[-1].startswith("/"):
+                    path = Path(parts[-1])
+                    if path.exists():
+                        # Soname is the library filename (e.g. libTKernel.so.3.0)
+                        deps[path.name] = path
+                continue
+            # Generic BSD format:     libfoo.so.0 /path/libfoo.so.0
+            parts = line.split()
+            if len(parts) >= 2 and parts[1].startswith("/"):
+                lib_name = parts[0]
+                p = Path(parts[1])
+                if p.exists():
+                    deps[lib_name] = p
+                else:
+                    deps[lib_name] = None
         return deps
 
     def _resolve_not_found(lib_name):
