@@ -525,6 +525,10 @@ def _copy_libs(libs, dest: Path):
         out = dest / real.name
         if not out.exists():
             shutil.copy2(str(real), str(out))
+            # Ensure the copy is writable so patchelf/chrpath can modify it.
+            mode = out.stat().st_mode
+            if not (mode & 0o200):
+                out.chmod(mode | 0o200)
             _set_origin_rpath(out)
             copied.append(out)
 
