@@ -45,7 +45,7 @@ jobs:
         env:
           PYTHON_VERSION: ${{ matrix.python_version }}
         run: |
-          $pyShort = "${env:PYTHON_VERSION}".Substring(0, 3).Replace(".", "")
+          $pyShort = "${env:PYTHON_VERSION}".Replace(".", "").Substring(0, 3)
           # Windows users report:
           #   Blender 5.0 -> Python 3.11
           #   Blender 5.2 -> Python 3.13

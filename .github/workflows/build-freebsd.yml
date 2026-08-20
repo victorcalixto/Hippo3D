@@ -77,8 +77,11 @@ jobs:
           VERSION="$TARGET_VERSION" FLAVOR="$FLAVOR" PLATFORM="$HIPPO_PLATFORM" ZIP_BASE="Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${HIPPO_PLATFORM}-python${PY_TAG}" ./package_bsd.sh
 
       - name: Smoke-test native module import in FreeBSD VM
-        shell: cpa.sh {0} --environment-variables PYTHON_VERSION
+        shell: cpa.sh {0} --environment-variables TARGET_VERSION FLAVOR HIPPO_PLATFORM PYTHON_VERSION
         env:
+          TARGET_VERSION: ${{ env.TARGET_VERSION }}
+          FLAVOR: ${{ env.FLAVOR }}
+          HIPPO_PLATFORM: ${{ env.HIPPO_PLATFORM }}
           PYTHON_VERSION: ${{ matrix.python_version }}
         run: |
           set -euo pipefail
