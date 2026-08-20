@@ -107,19 +107,20 @@ jobs:
           TMPDIR="$(mktemp -d)"
           unzip -q "$ZIP" -d "$TMPDIR"
           NATIVE_DIR="$TMPDIR/Hippo3D/native/${PLATFORM}"
-          python -c "
-import sys, glob, os, importlib.util
-mods = sorted(glob.glob('$NATIVE_DIR/hippo_occ_core*.so'))
-if not mods:
-    raise SystemExit('No native module found')
-mod_path = mods[-1]
-print('Testing import of', mod_path)
-spec = importlib.util.spec_from_file_location('hippo_occ_core', mod_path)
-mod = importlib.util.module_from_spec(spec)
-sys.modules['hippo_occ_core'] = mod
-spec.loader.exec_module(mod)
-print('SUCCESS:', mod.make_box_mesh(1,1,1).keys())
-"
+          python - "$NATIVE_DIR" <<'PY'
+          import sys, glob, os, importlib.util
+          native_dir = sys.argv[1]
+          mods = sorted(glob.glob(native_dir + '/hippo_occ_core*.so'))
+          if not mods:
+              raise SystemExit('No native module found')
+          mod_path = mods[-1]
+          print('Testing import of', mod_path)
+          spec = importlib.util.spec_from_file_location('hippo_occ_core', mod_path)
+          mod = importlib.util.module_from_spec(spec)
+          sys.modules['hippo_occ_core'] = mod
+          spec.loader.exec_module(mod)
+          print('SUCCESS:', mod.make_box_mesh(1,1,1).keys())
+          PY
           rm -rf "$TMPDIR"
         env:
           PYTHON_VERSION: ${{ matrix.python_version }}
