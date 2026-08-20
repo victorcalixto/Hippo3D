@@ -215,8 +215,11 @@ jobs:
           Write-Host "Testing import of" $modPath
           $testFile = "$env:TEMP\hippo_test_import.py"
           $testLines = @(
-              "import sys, importlib.util",
-              "sys.path.insert(0, r'$nativeDir')",
+              "import sys, os, importlib.util",
+              "native_dir = r'$nativeDir'",
+              "sys.path.insert(0, native_dir)",
+              "os.chdir(native_dir)",
+              "if hasattr(os, 'add_dll_directory'): os.add_dll_directory(native_dir)",
               "spec = importlib.util.spec_from_file_location('hippo_occ_core', r'$modPath')",
               "mod = importlib.util.module_from_spec(spec)",
               "sys.modules['hippo_occ_core'] = mod",

@@ -84,7 +84,14 @@ jobs:
           PY_SHORT="${PYTHON_VERSION%.*}"
           ZIP="$GITHUB_WORKSPACE/dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${HIPPO_PLATFORM}-python${PY_TAG}.zip"
           TMPDIR="$(mktemp -d)"
-          unzip -q "$ZIP" -d "$TMPDIR"
+          # OpenBSD base does not include unzip(1); use the Python we installed.
+          "python${PY_SHORT}" - "$ZIP" "$TMPDIR" <<'PY'
+          import sys, zipfile
+          zip_path, dest = sys.argv[1], sys.argv[2]
+          with zipfile.ZipFile(zip_path) as z:
+              z.extractall(dest)
+          print('Extracted to', dest)
+          PY
           NATIVE_DIR="$TMPDIR/Hippo3D/native/${HIPPO_PLATFORM}"
           "python${PY_SHORT}" - "$NATIVE_DIR" <<'PY'
           import sys, glob, importlib.util
