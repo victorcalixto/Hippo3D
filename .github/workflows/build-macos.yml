@@ -19,8 +19,8 @@ env:
 
 jobs:
   build-macos:
-    runs-on: macos-latest
-    timeout-minutes: 60
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -28,6 +28,13 @@ jobs:
         platform: [macos-arm64, macos-x86_64]
         python_version: ['3.11.9', '3.13.13']
         blender_version: ['4.5.0', '5.2.0']
+        include:
+          # macos-latest (macOS 26 arm64 as of mid-2026) can cross-compile
+          # x86_64 but cannot run the x86_64 native module for smoke tests.
+          # Use the last Intel runner for the Intel build so the smoke test
+          # runs on the correct architecture.
+          - { arch: arm64,  runs-on: macos-latest }
+          - { arch: x86_64, runs-on: macos-13 }
         exclude:
           - arch: arm64
             platform: macos-x86_64
@@ -65,12 +72,10 @@ jobs:
           # Intel macOS is supported up to Blender 4.5 LTS, which still bundles
           # Python 3.11. The Python.org 3.11 macOS installer targets macOS 11,
           # which is compatible with Blender 4.5's requirements.
-          # Blender 5.2 bundles Python 3.13 and requires macOS 13.0+.
-          if [ "${BLENDER_VERSION%%.*}" = "4" ]; then
-            MACOS_PKG_VERSION="11"
-          else
-            MACOS_PKG_VERSION="13"
-          fi
+          # Python.org macOS packages are named macos11.pkg; there is no
+          # macos13 variant. The arm64 slice is included in the universal2
+          # installer, so this single package works for both architectures.
+          MACOS_PKG_VERSION="11"
           INSTALLER="python-${PYTHON_VERSION}-macos${MACOS_PKG_VERSION}.pkg"
           curl -L -o "/tmp/${INSTALLER}" "https://www.python.org/ftp/python/${PYTHON_VERSION}/${INSTALLER}"
           sudo installer -pkg "/tmp/${INSTALLER}" -target /
