@@ -85,8 +85,9 @@ jobs:
           PYTHON_VERSION: ${{ matrix.python_version }}
         run: |
           set -euo pipefail
-          PY_SHORT="${PYTHON_VERSION%.*}"
-          PY_TAG="${PY_SHORT//./}"
+          PY_MAJOR="${PYTHON_VERSION%%.*}"
+          PY_MINOR="${PYTHON_VERSION#*.}"
+          PY_TAG="${PY_MAJOR}${PY_MINOR%%.*}"
           ZIP="$GITHUB_WORKSPACE/dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${HIPPO_PLATFORM}-python${PY_TAG}.zip"
           TMPDIR="$(mktemp -d)"
           unzip -q "$ZIP" -d "$TMPDIR"
@@ -109,8 +110,9 @@ jobs:
 
       - name: Verify ZIP exists
         run: |
-          PY_SHORT="${PYTHON_VERSION%.*}"
-          PY_TAG="${PY_SHORT//./}"
+          PY_MAJOR="${PYTHON_VERSION%%.*}"
+          PY_MINOR="${PYTHON_VERSION#*.}"
+          PY_TAG="${PY_MAJOR}${PY_MINOR%%.*}"
           ls -lh "$GITHUB_WORKSPACE/dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${HIPPO_PLATFORM}-python${PY_TAG}.zip"
         env:
           PYTHON_VERSION: ${{ matrix.python_version }}
@@ -127,8 +129,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PYTHON_VERSION: ${{ matrix.python_version }}
         run: |
-          PY_SHORT="${PYTHON_VERSION%.*}"
-          PY_TAG="${PY_SHORT//./}"
+          PY_MAJOR="${PYTHON_VERSION%%.*}"
+          PY_MINOR="${PYTHON_VERSION#*.}"
+          PY_TAG="${PY_MAJOR}${PY_MINOR%%.*}"
           chmod +x .github/scripts/cleanup_release_assets.sh
           .github/scripts/cleanup_release_assets.sh "$TARGET_VERSION" "$FLAVOR" "$HIPPO_PLATFORM" "$PY_TAG"
 
@@ -138,7 +141,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PYTHON_VERSION: ${{ matrix.python_version }}
         run: |
-          PY_SHORT="${PYTHON_VERSION%.*}"
-          PY_TAG="${PY_SHORT//./}"
+          PY_MAJOR="${PYTHON_VERSION%%.*}"
+          PY_MINOR="${PYTHON_VERSION#*.}"
+          PY_TAG="${PY_MAJOR}${PY_MINOR%%.*}"
           gh release upload "wip-${TARGET_VERSION}" \
             "dist/Hippo3D-v${TARGET_VERSION}-${FLAVOR}-${HIPPO_PLATFORM}-python${PY_TAG}.zip" --clobber
