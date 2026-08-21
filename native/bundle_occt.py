@@ -512,6 +512,15 @@ _VCRuntime_DLLS = {
 }
 
 
+# Names that are not system/runtime DLLs and should be bundled when discovered.
+_THIRDPARTY_DLL_PATTERNS = {
+    "tbb12.dll", "tbb.dll", "jemalloc.dll", "openvr_api.dll",
+    "freetype.dll", "freetype6.dll", "freeimage.dll",
+    "avcodec-57.dll", "avformat-57.dll", "avutil-55.dll", "swscale-4.dll",
+    "zlib.dll", "zlib1.dll", "winmm.dll",
+}
+
+
 # Windows API / system DLLs that are part of the OS and must never be bundled.
 # Bundling them causes version conflicts and can break loading on clean machines.
 _SYSTEM_DLLS = {
@@ -535,22 +544,15 @@ _SYSTEM_DLLS = {
 
 
 def _should_bundle_dll(name: str):
-    """Return True for any non-system DLL that might be an OCCT dependency.
-
-    On Windows we cannot rely solely on static dependency analysis (dumpbin may
-    miss transitive deps or not be on PATH). We bundle every DLL found in the
-    OCCT/3rdparty trees except known Windows system DLLs and the Python runtime
-    DLLs, which are copied separately.
-    """
+    """Return True for OCCT TK* DLLs, known 3rdparty runtime DLLs, and VC++ redist DLLs."""
     low = name.lower()
-    if not low.endswith(".dll"):
-        return False
-    # Python runtime DLLs are copied explicitly by the build script.
-    if low.startswith("python") and low.endswith(".dll"):
-        return False
-    if low in _SYSTEM_DLLS:
-        return False
-    return True
+    if low.startswith("tk"):
+        return True
+    if low in _THIRDPARTY_DLL_PATTERNS:
+        return True
+    if low in _VCRuntime_DLLS:
+        return True
+    return False
 
 
 def _windows_resolve(name: str, search_dirs):
@@ -563,47 +565,60 @@ def _windows_resolve(name: str, search_dirs):
 
 
 def _windows_libs(module: Path):
-    """Return list of absolute OCCT/3rdparty .dll paths to bundle.
+    """Return list of absolute OCCT/3rdparty .dll paths using dumpbin plus recursion.
 
-    Strategy: copy every non-system DLL found in the OCCT runtime directory and
-    in the 3rdparty-vc14-64 tree. Static dependency analysis via dumpbin is used
-    only to warn about unresolved dependencies so we can fix the bundle list if
-    a library is genuinely missing from the source trees.
+    We only bundle DLLs that are actually reachable from the built module via
+    static dependency analysis. This keeps the package close to the size it had
+    in previous releases (~39 MB) instead of copying every file in the OCCT
+    installer (~144 MB). A fallback collects all candidate DLLs from the
+    discovered OCCT and 3rdparty trees if dumpbin cannot be found.
     """
     occt_root = _discover_occt_root()
     search_dirs = _windows_search_dirs(occt_root)
-
-    if not search_dirs:
-        print("Warning: no OCCT/3rdparty search directories found.")
-        return []
 
     print("OCCT/3rdparty search directories:")
     for d in search_dirs:
         print(f"  {d}")
 
-    # Collect every non-system DLL in the search trees.
+    # Seed with direct dependents of the built module
+    queue = list(_windows_dependencies(module))
     found_names = set()
     libs = []
-    for d in search_dirs:
-        for dll in d.rglob("*.dll"):
-            if not dll.is_file():
-                continue
-            low = dll.name.lower()
-            if low in found_names:
-                continue
-            if not _should_bundle_dll(dll.name):
-                continue
-            found_names.add(low)
-            libs.append(dll.resolve())
 
-    # Diagnostic pass: list direct dependents of the module and warn about any
-    # that are not present in the collected bundle.
-    direct_deps = _windows_dependencies(module)
-    if direct_deps:
-        print("Direct dependents of the native module:")
-        for dep in direct_deps:
-            present = "(bundled)" if dep.lower() in found_names else "(MISSING)"
-            print(f"  {dep} {present}")
+    while queue:
+        name = queue.pop(0)
+        low = name.lower()
+        if low in found_names:
+            continue
+        found_names.add(low)
+
+        if not _should_bundle_dll(name):
+            continue
+
+        resolved = _windows_resolve(name, search_dirs)
+        if resolved:
+            libs.append(resolved)
+            # Recurse into this DLL's own dependents
+            for dep in _windows_dependencies(resolved):
+                if dep.lower() not in found_names:
+                    queue.append(dep)
+        else:
+            print(f"Warning: could not locate {name}")
+
+    # Fallback heuristic: if dumpbin is not available or found nothing useful,
+    # collect all candidate DLLs from the discovered OCCT and 3rdparty trees.
+    if not libs:
+        print("dumpbin did not discover dependencies; falling back to tree scan.")
+        fallback_names = set()
+        for d in search_dirs:
+            for dll in d.glob("TK*.dll"):
+                if dll.name.lower() not in found_names and dll.name.lower() not in fallback_names:
+                    fallback_names.add(dll.name.lower())
+                    libs.append(dll)
+            for dll in d.glob("*.dll"):
+                if _should_bundle_dll(dll.name) and dll.name.lower() not in found_names and dll.name.lower() not in fallback_names:
+                    fallback_names.add(dll.name.lower())
+                    libs.append(dll)
 
     return libs
 
