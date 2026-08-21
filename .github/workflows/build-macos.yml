@@ -16,7 +16,6 @@ env:
   OCCT_VERSION: '8.0.0'
   TARGET_VERSION: '0.3.0'
   FLAVOR: 'wip'
-  DEPLOYMENT_TARGET: '13.0'
 
 jobs:
   build-macos:
@@ -28,11 +27,23 @@ jobs:
         arch: [arm64, x86_64]
         platform: [macos-arm64, macos-x86_64]
         python_version: ['3.11.9', '3.13.13']
+        blender_version: ['4.5.0', '5.2.0']
         exclude:
           - arch: arm64
             platform: macos-x86_64
           - arch: x86_64
             platform: macos-arm64
+          # Blender discontinued Intel macOS support in Blender 5.x. Intel
+          # builds target the last Intel-compatible LTS (4.5.x) with Python 3.11.
+          - arch: x86_64
+            blender_version: '5.2.0'
+          - arch: x86_64
+            python_version: '3.13.13'
+          # Apple Silicon builds target the current Blender 5.2 with Python 3.13.
+          - arch: arm64
+            blender_version: '4.5.0'
+          - arch: arm64
+            python_version: '3.11.9'
 
     steps:
       - name: Checkout repository
@@ -51,7 +62,16 @@ jobs:
       - name: Install Python ${{ matrix.python_version }}
         run: |
           PY_SHORT="${PYTHON_VERSION%.*}"
-          INSTALLER="python-${PYTHON_VERSION}-macos11.pkg"
+          # Intel macOS is supported up to Blender 4.5 LTS, which still bundles
+          # Python 3.11. The Python.org 3.11 macOS installer targets macOS 11,
+          # which is compatible with Blender 4.5's requirements.
+          # Blender 5.2 bundles Python 3.13 and requires macOS 13.0+.
+          if [ "${BLENDER_VERSION%%.*}" = "4" ]; then
+            MACOS_PKG_VERSION="11"
+          else
+            MACOS_PKG_VERSION="13"
+          fi
+          INSTALLER="python-${PYTHON_VERSION}-macos${MACOS_PKG_VERSION}.pkg"
           curl -L -o "/tmp/${INSTALLER}" "https://www.python.org/ftp/python/${PYTHON_VERSION}/${INSTALLER}"
           sudo installer -pkg "/tmp/${INSTALLER}" -target /
           # The python.org installer puts binaries under /Library/Frameworks/Python.framework/Versions/${PY_SHORT}
@@ -63,6 +83,7 @@ jobs:
           echo "Python_ROOT_DIR=/Library/Frameworks/Python.framework/Versions/${PY_SHORT}" >> "$GITHUB_ENV"
         env:
           PYTHON_VERSION: ${{ matrix.python_version }}
+          BLENDER_VERSION: ${{ matrix.blender_version }}
 
       - name: Install pybind11 and CMake
         run: |
@@ -73,10 +94,19 @@ jobs:
       - name: Build OCCT ${{ env.OCCT_VERSION }} for ${{ matrix.arch }}
         env:
           OSX_ARCH: ${{ matrix.arch }}
+          BLENDER_VERSION: ${{ matrix.blender_version }}
         run: |
           chmod +x native/build_occt.sh
-          ./native/build_occt.sh
+          # macOS deployment target: 4.5 LTS supports 11.0 (Intel), 5.2 requires 13.0.
+          if [ "${BLENDER_VERSION%%.*}" = "4" ]; then
+            TARGET_DEPLOYMENT="11.0"
+          else
+            TARGET_DEPLOYMENT="13.0"
+          fi
+          export DEPLOYMENT_TARGET="${TARGET_DEPLOYMENT}"
+          OSX_ARCH="${OSX_ARCH}" ./native/build_occt.sh
           echo "OCCT_ROOT=$(pwd)/native/third_party/occt-${OCCT_VERSION}-${OSX_ARCH}" >> "$GITHUB_ENV"
+          echo "DEPLOYMENT_TARGET=${TARGET_DEPLOYMENT}" >> "$GITHUB_ENV"
 
       - name: Build Hippo3D native module for ${{ matrix.arch }}
         env:
