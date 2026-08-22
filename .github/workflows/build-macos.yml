@@ -124,6 +124,7 @@ jobs:
           chmod +x native/build_macos.sh
           cd native
           OSX_ARCH="${OSX_ARCH}" PLATFORM_FOLDER="${PLATFORM_FOLDER}" DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET}" PYTHON_BIN="${PYTHON_BIN}" BUNDLE_AUTO=1 ./build_macos.sh
+
       - name: Inspect macOS native bundle
         run: |
           NATIVE_DIR="native/${{ matrix.platform }}"
