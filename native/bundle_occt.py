@@ -703,7 +703,11 @@ def _copy_libs(libs, dest: Path):
         out = dest / real.name
         if not out.exists():
             shutil.copy2(str(real), str(out))
+            
             if platform.system().lower() == "darwin":
+                aliases = set()
+
+                # First try the Mach-O install name.
                 try:
                     raw = subprocess.check_output(
                         ["otool", "-D", str(real)],
@@ -711,22 +715,46 @@ def _copy_libs(libs, dest: Path):
                         errors="replace",
                     )
 
-                    lines = [line.strip() for line in raw.splitlines()[1:] if line.strip()]
-
-                    if lines:
-                        install_name = lines[0]
-                        alias_name = Path(install_name).name
-
-                        if alias_name and alias_name != real.name:
-                            alias = dest / alias_name
-
-                            if not alias.exists():
-                                alias.symlink_to(real.name)
-
-                            copied.append(alias)
+                    for line in raw.splitlines()[1:]:
+                        line = line.strip()
+                        if line:
+                            aliases.add(Path(line).name)
 
                 except (FileNotFoundError, subprocess.CalledProcessError):
                     pass
+
+                # OCCT macOS libraries are commonly installed as:
+                #
+                #   libTKernel.8.0.0.dylib
+                #
+                # while dependent binaries request:
+                #
+                #   libTKernel.8.0.dylib
+                #
+                # Preserve that compatibility-version filename as an alias.
+                name = real.name
+
+                if name.endswith(".dylib"):
+                    stem = name[:-6]
+                    parts = stem.split(".")
+
+                    if len(parts) >= 4 and parts[-3:].count("0") >= 1:
+                        compat_name = ".".join(parts[:-1]) + ".dylib"
+                        aliases.add(compat_name)
+
+                for alias_name in aliases:
+                    if alias_name and alias_name != real.name:
+                        alias = dest / alias_name
+
+                        if not alias.exists():
+                            alias.symlink_to(real.name)
+                            print(
+                                f"Created macOS dylib alias: "
+                                f"{alias.name} -> {real.name}"
+                            )
+
+                        copied.append(alias)
+
             # Ensure the copy is writable so patchelf/chrpath can modify it.
             mode = out.stat().st_mode
             if not (mode & 0o200):
