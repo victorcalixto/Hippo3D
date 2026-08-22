@@ -100,6 +100,7 @@ if [ "$BUNDLE_AUTO" = "1" ]; then
     echo "Auto-bundling OCCT shared libraries..."
     "$PYTHON_BIN" "$SCRIPT_DIR/bundle_occt.py" \
     --platform "$PLATFORM_FOLDER"
+fi
 # If this Python was built as a framework, pybind11 may have linked
 # libPython.dylib.  Bundle it so the add-on loads on a host without the same
 # framework installed (e.g. Blender's bundled interpreter).
