@@ -147,7 +147,7 @@ jobs:
           otool -l "$NATIVE_DIR"/hippo_occ_core*.so \
             | grep -A3 LC_RPATH || true
 
-            - name: Package add-on for ${{ matrix.arch }}
+        - name: Package add-on for ${{ matrix.arch }}
               env:
                 OSX_ARCH: ${{ matrix.arch }}
                 VERSION: ${{ env.TARGET_VERSION }}
