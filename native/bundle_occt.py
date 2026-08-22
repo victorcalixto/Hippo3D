@@ -67,12 +67,30 @@ _SYSTEM_LIBS = {
 
 # Known non-OCCT third-party libraries that may be pulled in by OCCT and should
 # be bundled so the add-on works on a clean machine.
-_THIRDPARTY_SONAME_PREFIXES = {
-    "libtbb", "libfreetype", "libfreeimage", "libjemalloc",
-    "libavcodec", "libavformat", "libavutil", "libswscale",
-    "libpng", "libjpeg", "libtiff", "libz", "libzlib",
-}
 
+_THIRDPARTY_SONAME_PREFIXES = {
+    "libtbb",
+    "libfreetype",
+    "libfreeimage",
+    "libjemalloc",
+
+    # FFmpeg
+    "libavcodec",
+    "libavformat",
+    "libavutil",
+    "libavfilter",
+    "libavdevice",
+    "libswscale",
+    "libswresample",
+    "libpostproc",
+
+    # Image/runtime dependencies
+    "libpng",
+    "libjpeg",
+    "libtiff",
+    "libz",
+    "libzlib",
+}
 
 def _is_system_lib(name: str):
     """Return True if the library is a standard system C/C++ runtime."""
@@ -189,6 +207,9 @@ def _linux_libs(module: Path):
     # Breadth-first traversal of dependency tree
     visited = set()
     libs = []
+
+    system = platform.system().lower()
+
     queue = [module]
 
     while queue:
@@ -198,21 +219,33 @@ def _linux_libs(module: Path):
         visited.add(current)
 
         deps = _collect_ldd(current)
+
         for lib_name, lib_path in deps.items():
             if _is_system_lib(lib_name):
                 continue
-            if not _is_occt_or_bundled_thirdparty(lib_name):
-                continue
+
             if lib_path is None:
                 lib_path = _resolve_not_found(lib_name)
+
             if lib_path is None or not lib_path.exists():
                 print(f"Warning: could not locate {lib_name}")
                 continue
+
             real = lib_path.resolve()
+
+            should_bundle = _is_occt_or_bundled_thirdparty(lib_name)
+
+            # FreeBSD ports/packages install third-party libraries here.
+            if system == "freebsd":
+                if str(real).startswith("/usr/local/lib/"):
+                    should_bundle = True
+
+            if not should_bundle:
+                continue
+
             if real not in visited:
                 libs.append(real)
                 queue.append(real)
-
     # Remove duplicates while preserving order
     seen = set()
     deduped = []
@@ -670,6 +703,30 @@ def _copy_libs(libs, dest: Path):
         out = dest / real.name
         if not out.exists():
             shutil.copy2(str(real), str(out))
+            if platform.system().lower() == "darwin":
+                try:
+                    raw = subprocess.check_output(
+                        ["otool", "-D", str(real)],
+                        text=True,
+                        errors="replace",
+                    )
+
+                    lines = [line.strip() for line in raw.splitlines()[1:] if line.strip()]
+
+                    if lines:
+                        install_name = lines[0]
+                        alias_name = Path(install_name).name
+
+                        if alias_name and alias_name != real.name:
+                            alias = dest / alias_name
+
+                            if not alias.exists():
+                                alias.symlink_to(real.name)
+
+                            copied.append(alias)
+
+                except (FileNotFoundError, subprocess.CalledProcessError):
+                    pass
             # Ensure the copy is writable so patchelf/chrpath can modify it.
             mode = out.stat().st_mode
             if not (mode & 0o200):
