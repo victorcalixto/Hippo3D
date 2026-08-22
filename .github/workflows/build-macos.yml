@@ -124,20 +124,42 @@ jobs:
           chmod +x native/build_macos.sh
           cd native
           OSX_ARCH="${OSX_ARCH}" PLATFORM_FOLDER="${PLATFORM_FOLDER}" DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET}" PYTHON_BIN="${PYTHON_BIN}" BUNDLE_AUTO=1 ./build_macos.sh
-
-      - name: Package add-on for ${{ matrix.arch }}
-        env:
-          OSX_ARCH: ${{ matrix.arch }}
-          VERSION: ${{ env.TARGET_VERSION }}
-          FLAVOR: ${{ env.FLAVOR }}
-          PYTHON_VERSION: ${{ matrix.python_version }}
+      - name: Inspect macOS native bundle
         run: |
-          PY_SHORT="${PYTHON_VERSION%.*}"
-          PY_TAG="${PY_SHORT//./}"
-          ZIP_BASE="Hippo3D-v${VERSION}-${FLAVOR}-${{ matrix.platform }}-python${PY_TAG}"
-          chmod +x native/package_macos.sh
-          cd native
-          OSX_ARCH="${OSX_ARCH}" VERSION="${VERSION}" FLAVOR="${FLAVOR}" ZIP_BASE="${ZIP_BASE}" ./package_macos.sh
+          NATIVE_DIR="native/${{ matrix.platform }}"
+
+          echo "===== Native directory ====="
+          ls -lah "$NATIVE_DIR"
+
+          echo
+          echo "===== Dylibs ====="
+          find "$NATIVE_DIR" -maxdepth 1 \
+            \( -type f -o -type l \) \
+            -name '*.dylib' \
+            -print
+
+          echo
+          echo "===== Module dependencies ====="
+          otool -L "$NATIVE_DIR"/hippo_occ_core*.so
+
+          echo
+          echo "===== Module RPATH ====="
+          otool -l "$NATIVE_DIR"/hippo_occ_core*.so \
+            | grep -A3 LC_RPATH || true
+
+            - name: Package add-on for ${{ matrix.arch }}
+              env:
+                OSX_ARCH: ${{ matrix.arch }}
+                VERSION: ${{ env.TARGET_VERSION }}
+                FLAVOR: ${{ env.FLAVOR }}
+                PYTHON_VERSION: ${{ matrix.python_version }}
+              run: |
+                PY_SHORT="${PYTHON_VERSION%.*}"
+                PY_TAG="${PY_SHORT//./}"
+                ZIP_BASE="Hippo3D-v${VERSION}-${FLAVOR}-${{ matrix.platform }}-python${PY_TAG}"
+                chmod +x native/package_macos.sh
+                cd native
+                OSX_ARCH="${OSX_ARCH}" VERSION="${VERSION}" FLAVOR="${FLAVOR}" ZIP_BASE="${ZIP_BASE}" ./package_macos.sh
 
       - name: Smoke-test native module import
         run: |
