@@ -34,7 +34,7 @@ jobs:
           # Use the last Intel runner for the Intel build so the smoke test
           # runs on the correct architecture.
           - { arch: arm64,  runs-on: macos-latest }
-          - { arch: x86_64, runs-on: macos-13 }
+          - { arch: x86_64, runs-on: macos-15-intel }
         exclude:
           - arch: arm64
             platform: macos-x86_64
